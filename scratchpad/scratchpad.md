@@ -4,6 +4,19 @@
 
 ---
 
+## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
+**Where we are:** Phase 2 in progress. Step 1 (full-document prompt-cache reuse) DONE and proven live.
+**Next action:** Phase 2 step 2 -- build the three specialists (materiality -> process_impact -> gap_analyzer)
+as sequential reads over the shared cached document prefix (ria.caching.ask_over_document); cache_read lights up
+on reads 2+ (chaining + caching CCAF surfaces). Then: an analysis skill, then the Evaluator on the Claude Agent SDK.
+**Repo state:** clean + fully pushed; latest commit 4f4b492. CI (ruff + pytest) runs on push via GitHub Actions.
+**Runtime facts:** model routing operator-pinned in .env (haiku classify / sonnet specialists / opus evaluator /
+sonnet synth); Notion data_source_id lives in .env; governance hooks in .claude/settings.json (review via /hooks).
+**Fast re-orient:** read this scratchpad top-to-bottom -- the Architecture Direction, Phase 1, and Phase 2 step 1
+sections hold the details. Working style: config-over-code, harness-first (see memory + Architecture Direction).
+
+---
+
 ## Phase 0: Foundation
 **Date:** 2026-07-10
 **Status:** Complete

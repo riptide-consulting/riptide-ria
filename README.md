@@ -62,6 +62,11 @@ python main.py --batch --analyze --evaluate --synthesize --limit 5
 `--evaluate` is one Opus call/doc). Nothing past plain `classify` is free. Start with `--limit 1`
 on anything new.
 
+**For a quick demo**, double-click `run_demo.bat` (or run `run_demo.bat 5` to change the
+document count from the default of 2) — it runs the full chain above with sensible,
+cost-bounded defaults. No scheduling/automation exists deliberately: every run here is a
+manual, human-initiated action, consistent with the governance model below.
+
 **`--synthesize`'s Notion write and escalation email are separately gated**: they only fire
 when the Evaluator's tier decision authorizes them (`execute`/`escalate`) *and*
 `RIA_EVALUATOR_APPROVED=1` is set in the environment. Without that env var, `--synthesize`

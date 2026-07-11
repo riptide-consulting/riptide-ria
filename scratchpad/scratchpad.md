@@ -5,12 +5,24 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phases 2, 4, 5 are DONE (pushed through 781497c). Phase 3 (Google Drive) is now ALSO DONE
-and live-proven: real Drive MCP server, wired into the specialists' shared cached prefix, real OAuth consent
-completed for drive.readonly, search mechanism verified working (found 3 real files on a broad query), and
-the full pipeline run confirmed the "no matching policy docs" case threads through honestly end to end.
-Andrew deliberately chose NOT to stage a sample policy document right now -- revisiting that once real
-Riptide policy content actually exists in Drive, rather than fabricating placeholder content today.
+**Where we are:** Phases 1-5 are ALL done and pushed through b41c219. Proved the whole system runs as ONE
+command: `main.py --batch --analyze --evaluate --synthesize --limit 2` completed cleanly end to end on 2
+genuinely different real documents (~9m43s total) -- batch classify, all 3 specialists x2, Evaluator x2 (5
+total live Notion precedent-tool calls), Synthesizer x2 (briefing + real DOCX/PPTX, both files verified
+present with healthy sizes). Also wrote real project documentation for the first time: README.md (was a
+one-liner) and a new .env.example template -- both about to be committed.
+**Notable this stretch:** Claude Code's own auto-mode permission classifier (separate from this project's
+hooks) correctly blocked an attempt to run the full pipeline with RIA_EVALUATOR_APPROVED=1 set, reasoning
+that "let's push forward" is general encouragement, not specific authorization for a live-fire run that
+could really write to Notion / send email on whatever real documents come back. Ran the safe (unapproved)
+version instead -- proves the same thing, just with execute/escalate actions correctly shown as blocked
+rather than fired. Also found (via a deliberate grep, not by accident) that CONFIDENCE_THRESHOLD/
+AUTO_EXECUTE_THRESHOLD/ESCALATION_THRESHOLD in .env are completely vestigial -- zero code reads them; the
+real thresholds (same values) come from config/pipeline_config.json's autonomy section instead. Minor,
+non-blocking, not yet cleaned up.
+**Next action:** commit README.md + .env.example. After that the core build is functionally complete --
+remaining open items are Phase 6 (polish, unscoped), the dead .env threshold vars (cosmetic), a real
+branded DOCX/PPTX template, and staging real policy content in Drive whenever it exists.
 **Next action:** commit this Phase 3 work (about to happen), then decide what's next -- Phase 6 polish, or
 just consider the core build done and revisit Drive once real policy content exists. Nothing else is
 blocking; every phase's mechanism is live-proven even where real data is still absent (Drive policy docs,

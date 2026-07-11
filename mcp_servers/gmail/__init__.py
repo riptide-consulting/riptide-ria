@@ -1,0 +1,1 @@
+"""Gmail escalation-notification integration."""

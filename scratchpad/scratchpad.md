@@ -5,15 +5,17 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phase 2 done + hardened (real MCP, real batching, varied-batch proof -- all pushed,
-commit a6bbb48). Phase 4 (execution gate) is FUNCTIONALLY COMPLETE: approval gate, property mapping, the
-write itself, and the read-back path are all live-proven against the real Notion workspace (one real page
-written via a clearly-labeled synthetic Tier-1 proof, since no live document has naturally landed Tier 1
-yet). That same live verification also caught and fixed a real bug (Status property read wrong -- see
-"Live write proof" under Phase 4). Not yet pushed -- commit pending as of this entry.
-**Next action:** decide the next phase: Phase 3 (Google Drive OAuth -- Andrew is waiting on a go-ahead, not
-blocked; needs his own Google Cloud Console setup first) / Phase 5 (Synthesizer + DOCX/PPTX, untouched
-territory -- python-docx/pptx unused so far, template files in config/ not yet verified to exist).
+**Where we are:** Phases 2 and 4 done + pushed (commit d6d4ff2). Phase 5 (Synthesizer) CORE IS DONE and
+live-proven end to end: briefing generation, DOCX, and PPTX all work against real data -- verified by
+actually reopening the generated files, not just checking paths were logged. Phase 3 (Google) is IN
+PROGRESS -- Andrew is doing OAuth setup in Google Cloud Console right now (Internal Workspace app,
+drive.readonly + gmail.send scopes); I built ria/synthesizer.py and mcp_servers/gmail/client.py in parallel
+so neither of us was blocked on the other.
+**Next action:** once Andrew finishes OAuth and saves the downloaded credentials JSON at the path configured
+by GOOGLE_CREDENTIALS_PATH in .env (gitignored via the pattern `config/google_*.json`), live-test the
+escalation email send for real -- that's the one piece of Phase 5 that's correctly built but not yet
+live-proven, since it hard-depends on his setup. Then Phase 3 proper (Drive MCP server + wiring specialists
+to actually use it, removing the "no Drive access" caveats).
 **Runtime fact worth remembering:** the Notion tracker's Agency select field originally only had
 SEC/FINRA/State/Other (a leftover from a different, financial-services Riptide template) -- fixed live via
 mcp_servers/notion_tracker/writer.ensure_agency_options(), now includes the two healthcare agency names,
@@ -372,7 +374,78 @@ Tier-1 document has been observed yet (still just the synthetic proof for the fu
 -- not blocking, just worth remembering if a real Tier-1 result would be reassuring later.
 
 ## Phase 5: Synthesizer + Output Layer
-*Pending*
+**Status: core done and live-proven (2026-07-11); Gmail send blocked only on Andrew's OAuth setup**
+
+### Architecture realignment (found before writing any code)
+Read agents/synthesizer/CLAUDE.md for the first time (should have read it alongside the other agent CLAUDE.md
+files back when building each phase, but Phase 4 got built from root CLAUDE.md's phase description without
+cross-checking this file). It changes the picture: the Synthesizer isn't just a DOCX/PPTX generator, its
+Tools Available are "notion_tracker: create remediation records, gmail: send escalation notifications,
+outputs: write DOCX and PPTX files" -- it's the actual "closing" agent that owns every remaining action a
+tier decision authorizes. Phase 4 had main.py call create_remediation_record directly; refactored so
+main.py's (renamed) --synthesize flag calls ria.synthesizer.synthesize() instead, which internally calls the
+SAME create_remediation_record from Phase 4 (no logic duplicated) plus the new email-sending piece plus
+DOCX/PPTX generation. One place now decides whether Notion/email side effects happen, matching the spec.
+
+### ria/synthesizer.py (done)
+- Briefing generation: one Sonnet call, forced tool use (submit_briefing), synthesizing (not concatenating)
+  gap_analyzer's gaps + process_impact's processes into ONE prioritized, deduplicated remediation_plan with
+  concrete due dates (today's date passed explicitly in the prompt so the model computes real relative
+  dates rather than guessing "now"). Executive summary explicitly required to be non-technical/jargon-free
+  per the CLAUDE.md constraint.
+- DOCX (python-docx 1.2.0) and PPTX (python-pptx 1.0.2) generation, verified against real installed source
+  before coding (Table Grid style, slide_layouts indices 0/1/5 all confirmed real). Both fall back to a
+  clean, unbranded document when no real Riptide template exists at the configured path (which it doesn't
+  yet -- config/riptide_template.docx/.pptx were never created) -- dropping a real branded template there
+  later needs zero code changes. Chose this over inventing fake branding myself (not my call to make).
+- Real bug caught by my OWN offline tests (reopening the generated files and asserting on real content, not
+  just "did save() not throw"): when no template is configured, `PROJECT_ROOT / ""` is a pathlib no-op that
+  resolves to PROJECT_ROOT itself, and the old code's `template.exists()` check was true (the repo root
+  obviously exists) -- so it tried to open the WHOLE PROJECT DIRECTORY as if it were a .docx/.pptx file.
+  Fixed with a proper _resolve_template() that checks the config value's truthiness BEFORE joining onto
+  PROJECT_ROOT. This is the same class of "test the thing that actually runs, not just that it doesn't
+  crash" lesson as the Notion Status bug from Phase 4.
+- ria/settings.py: added `output` (docx/pptx template + output paths, was in pipeline_config.json but never
+  loaded), `google_credentials_path`, `gmail_escalation_address`, `gmail_sender_address` (all three already
+  sitting configured in .env since Phase 0 -- GOOGLE_CREDENTIALS_PATH, GMAIL_ESCALATION_ADDRESS,
+  GMAIL_SENDER_ADDRESS -- just never wired into Settings or used by any code until now).
+- mcp_servers/gmail/client.py: send_escalation_email, gated by the identical RIA_EVALUATOR_APPROVED pattern
+  as the Notion writer. is_configured() lets callers check gracefully rather than crash when Phase 3 isn't
+  done. Verified the OAuth API (InstalledAppFlow.from_client_secrets_file/run_local_server) against the
+  installed google-auth-oauthlib 1.4.0 source. Cannot be live-tested until Andrew's OAuth setup completes --
+  correctly built, not yet proven live. That's an honest, explicit gap, not a hidden one.
+- Governance note: guard_secrets.py blocked THREE of my own writes this phase (a hardcoded default path
+  matching GOOGLE_CREDENTIALS_PATH's real value, then a .gitignore line spelling out the same literal path,
+  then a Bash verification command containing it) -- all were legitimate, harmless uses, but the hook can't
+  tell "duplicating a value that belongs in .env" from "leaking a secret," so it blocks both the same way.
+  Correct response each time: don't reproduce the literal value -- read it from Settings instead of
+  hardcoding a matching default, and use a wildcard glob (`config/google_*.json`) in .gitignore instead of
+  the exact filename. This is the hook doing its job, not a bug to route around.
+- main.py: `--execute` renamed to `--synthesize` (implies --evaluate) -- more accurate, since briefings/
+  DOCX/PPTX now get generated for EVERY evaluated document regardless of tier (a Tier 2 document still gets
+  a briefing a human can review), not just Tier 1 ones. Table output shows output files + notion + email_sent.
+- 12 new offline tests, including two specifically for the _resolve_template bug. 86 tests pass, ruff clean.
+
+### Live end-to-end proof (done)
+`main.py --synthesize --limit 1` on 2026-14073, RIA_EVALUATOR_APPROVED unset (the safe path): classify ->
+all 3 specialists (gap_analyzer hit a REAL retry this run -- outcome=retry then outcome=ok on attempt 2,
+the first live proof all session that the retry mechanism actually fires, not just passes in unit tests) ->
+evaluate (tier=3, escalate=True, execute=False) -> synthesize (briefing with 12 synthesized remediation
+actions, DOCX + PPTX written). Notion write correctly SKIPPED ENTIRELY (execute=False, Tier 3 -- not even
+attempted, distinct from being blocked) since Tier 1 still hasn't occurred naturally. Escalation email
+correctly BLOCKED with a clear message (RIA_EVALUATOR_APPROVED not set). Re-opened both output files for
+real and verified their actual content (not just that save() didn't throw): DOCX has the right title + a
+13-row table (header + 12 actions); PPTX has all 4 expected slides with the right titles.
+
+### Still open
+- Gmail send itself: code-complete, gated correctly, cannot be live-proven until Andrew's OAuth setup
+  finishes (in progress as of this entry).
+- No real branded Riptide template exists yet -- current output is clean but generic. Not blocking; drop a
+  template at the configured path whenever one exists, no code change needed.
+- Notion write within synthesize() still hasn't been live-proven from a NATURALLY occurring Tier-1 result
+  (same open item carried from Phase 4) -- the mechanism itself has two independent live proofs now (the
+  Agency schema fix, and the earlier synthetic execute_probe.py write), so this is a low-concern gap.
 
 ## Phase 6: Optimization + Polish
-*Pending*
+*Pending -- not yet scoped. Candidates once Phase 3 finishes: a real branded template, wiring the whole
+chain into one scheduled/cron-friendly run, README/docs polish. Size this once we get here, not before.*

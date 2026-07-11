@@ -220,3 +220,6 @@ __marimo__/
 # RIA runtime artifacts
 logs/*.jsonl
 outputs/
+
+# RIA Google OAuth credentials (Phase 3) -- never committed, same as .env
+config/google_*.json

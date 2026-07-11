@@ -53,6 +53,12 @@ class Settings:
     # --- governance / pipeline ---
     autonomy: dict
     pipeline: dict
+    # --- output (Synthesizer: DOCX/PPTX) ---
+    output: dict
+    # --- google (Synthesizer: escalation email; Phase 3: Drive) ---
+    google_credentials_path: str
+    gmail_escalation_address: str
+    gmail_sender_address: str
     # --- logging ---
     log_level: str
     log_path: str
@@ -115,6 +121,10 @@ def get_settings() -> Settings:
         fr_lookback_days=int(fr.get("lookback_days", 7)),
         autonomy=cfg.get("autonomy", {}),
         pipeline=cfg.get("pipeline", {}),
+        output=cfg.get("output", {}),
+        google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH", ""),
+        gmail_escalation_address=os.getenv("GMAIL_ESCALATION_ADDRESS", ""),
+        gmail_sender_address=os.getenv("GMAIL_SENDER_ADDRESS", ""),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         log_path=os.getenv("LOG_PATH", "logs/ria.log"),
     )

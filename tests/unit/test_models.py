@@ -30,5 +30,10 @@ def test_primary_agency_defaults_to_unknown():
     assert _doc(agencies=[]).primary_agency == "Unknown"
 
 
+def test_primary_agency_prefers_subagency_over_department():
+    doc = _doc(agencies=["Health and Human Services Department", "Food and Drug Administration"])
+    assert doc.primary_agency == "Food and Drug Administration"
+
+
 def test_summary_truncates():
     assert len(_doc(abstract="x" * 1000).summary(limit=100)) == 100

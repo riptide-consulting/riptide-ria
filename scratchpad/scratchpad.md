@@ -73,7 +73,7 @@
 
 ## Phase 1: Core Ingestion + Caching
 **Date:** 2026-07-10
-**Status:** In progress
+**Status:** Complete -- working ingest -> classify pipeline
 
 ### Ingestion foundation (done)
 - ria/ core package: settings (typed, secret-redacting), models (RegulatoryDocument), logging_setup (operator audit line)
@@ -90,11 +90,16 @@
 ### CCAF surfaces added this session
 - Hooks (governance enforcement) + CI/CD (GitHub Actions). Root CLAUDE.md coverage map updated to include Hooks, CI/CD, Skills, SDK.
 
-### Still open in Phase 1
-- Prompt caching wiring (lands with the first specialist agent call - Phase 2)
-- main.py headless -p entrypoint
-- Classifier agent (bridges Phase 1 -> Phase 2)
-- Fix primary_agency heuristic (prefer CMS/FDA over parent HHS)
+### Classifier + headless entrypoint (done)
+- ria/classifier.py: single cached Haiku call, forced tool use (strict schema), confidence-floor rule (<0.60 routes all three)
+- Prompt caching wired (cache_control on rubric + document); verified live -- writes 0 tokens because abstracts sit under Haiku's 4096-token minimum, reported honestly. Full-doc reuse is Phase 2.
+- main.py: headless -p entrypoint (ingest -> classify -> routing table / JSONL). Verified live: 3 docs routed with sensible priority/confidence
+- primary_agency heuristic fixed (prefers CMS/FDA over the parent HHS department)
+- 18 tests pass, ruff clean; classifier logic covered offline (no live API in CI)
+
+### Carried to Phase 2
+- Full-document caching + cross-agent reuse (the real cache-READ demonstration)
+- Specialist sub-agents (materiality / process_impact / gap_analyzer) + an analysis skill + the Agent SDK Evaluator
 
 ## Phase 2: Specialist Sub-Agents
 *Pending*

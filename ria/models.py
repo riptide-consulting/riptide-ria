@@ -28,7 +28,14 @@ class RegulatoryDocument(BaseModel):
 
     @property
     def primary_agency(self) -> str:
-        return self.agencies[0] if self.agencies else "Unknown"
+        # Federal Register lists the parent department first (e.g. "Health and Human
+        # Services Department"); prefer the specific sub-agency (CMS / FDA) when present.
+        if not self.agencies:
+            return "Unknown"
+        for agency in self.agencies:
+            if "department" not in agency.lower():
+                return agency
+        return self.agencies[0]
 
     def summary(self, limit: int = 500) -> str:
         """Short abstract for routing/logging -- never the full body."""

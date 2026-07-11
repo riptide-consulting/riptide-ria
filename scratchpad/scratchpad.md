@@ -71,6 +71,23 @@
 
 ---
 
+## Architecture Direction (locked 2026-07-10)
+Config-over-code, harness-first. Andrew is early in his dev journey and wants to avoid
+hand-rolling low-level code, so we lean on the Claude Code harness (agents as markdown,
+skills, hooks, headless -p) plus thin, legible Python that I write and he reviews.
+
+- SDK: use the Claude Agent SDK for ONE self-contained component (the Evaluator gate) to
+  genuinely exercise the SDK CCAF surface; everything else stays config-first. Key reframe:
+  the Agent SDK is the *higher-level* path -- "raw coding" = hand-rolled anthropic Messages
+  loops, which we avoid.
+- Google OAuth (Drive/Gmail) deferred to Phase 3, when those integrations are actually needed.
+- Model routing stays operator-pinned in .env (Haiku classify / Sonnet specialists / Opus
+  evaluator / Sonnet synth); never upgraded in code.
+- CCAF surfaces still open: Skills + SDK (Phase 2), chaining (specialist sequence),
+  Evaluator gate (Phase 4), full-document cache reuse (Phase 2).
+
+---
+
 ## Phase 1: Core Ingestion + Caching
 **Date:** 2026-07-10
 **Status:** Complete -- working ingest -> classify pipeline

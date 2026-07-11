@@ -221,5 +221,6 @@ __marimo__/
 logs/*.jsonl
 outputs/
 
-# RIA Google OAuth credentials (Phase 3) -- never committed, same as .env
+# RIA Google OAuth credentials + tokens (Phase 3) -- never committed, same as .env
 config/google_*.json
+config/*_token.json

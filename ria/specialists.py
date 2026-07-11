@@ -9,28 +9,31 @@ byte-identical, not just the cached block itself (see ria/caching.py). The speci
 and schema instructions live in the per-call question text instead, appended after the cached
 document.
 
-Specialists run without Google Drive access in this phase (deferred to Phase 3); prompts say
-so explicitly rather than pretending a policy cross-reference happened.
+Phase 3 folds Google Drive content into the shared cached prefix (ria/caching.py) rather
+than giving each specialist its own live tool -- a per-specialist tool would vary the
+tools/system portion of the prefix per specialist, which would break the cache-sharing this
+whole module depends on (see ria/caching.py's docstring). The cached context always states
+plainly whether Drive found anything relevant, so specialists never have to guess.
 """
 
 from __future__ import annotations
 
 import json
 
-from ria.caching import ask_over_document, cached_document_prefix
+from ria.caching import ask_over_document, cached_document_prefix, fetch_drive_context
 from ria.logging_setup import log_event, setup_logging
 from ria.models import RegulatoryDocument
 from ria.settings import Settings, get_settings
 
-_NO_DRIVE_NOTE = (
-    "You do NOT have access to internal policy or process documents in this phase "
-    "(Google Drive integration lands in Phase 3). Base your analysis on the regulatory "
-    "text alone, and say so in `reasoning` wherever the rubric below asks you to compare "
-    "against existing internal documentation."
+_DRIVE_NOTE = (
+    "The cached context above states whether any internal policy documents were found in "
+    "Google Drive for this agency/topic. If none were found, say so plainly in `reasoning` "
+    "wherever the rubric below asks you to compare against existing internal documentation "
+    "-- don't fabricate a comparison that didn't happen."
 )
 
 _MATERIALITY_PROMPT = f"""You are the Materiality Assessor. Score how materially this
-regulation impacts healthcare operations. {_NO_DRIVE_NOTE}
+regulation impacts healthcare operations. {_DRIVE_NOTE}
 
 Flag any enforcement action or penalty language immediately in `reasoning`.
 
@@ -47,7 +50,7 @@ these keys:
 
 _PROCESS_IMPACT_PROMPT = f"""You are the Process Impact Mapper. Map this regulation's
 requirements to specific internal processes and workflows that require modification or
-review. {_NO_DRIVE_NOTE}
+review. {_DRIVE_NOTE}
 
 Never suggest a process change without citing the specific regulatory text driving it
 (cite it inline in `required_change`). Always suggest a process owner. List at most 10
@@ -70,7 +73,7 @@ these keys:
 }}"""
 
 _GAP_ANALYZER_PROMPT = f"""You are the Gap Analyzer. Identify gaps between current
-organizational documentation/controls and what this regulation requires. {_NO_DRIVE_NOTE}
+organizational documentation/controls and what this regulation requires. {_DRIVE_NOTE}
 
 Every critical gap must include a specific remediation_action. Never mark a gap involving
 PHI or patient safety as low severity. If a gap requires external legal or compliance
@@ -234,7 +237,8 @@ def run_all_specialists(
     """
     settings = settings or get_settings()
     logger = logger or setup_logging(settings)
-    prefix = cached_document_prefix(doc, full_text)
+    drive_context = fetch_drive_context(doc, settings=settings, logger=logger)
+    prefix = cached_document_prefix(doc, full_text, drive_context)
 
     results = {}
     for key in _SPECIALISTS:

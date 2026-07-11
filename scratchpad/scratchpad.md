@@ -5,17 +5,16 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phases 2, 4, and 5 are all DONE and fully live-proven, including the Gmail piece --
-Andrew finished the Google Cloud Console OAuth setup (Internal Workspace app, "Riptide RIA", Desktop app
-client, drive.readonly + gmail.send scopes) and gmail_probe.py sent two real emails: the first triggered
-the one-time interactive consent (browser popup, he clicked Allow), the second sent with ZERO interaction --
-confirming the cached refresh token works exactly as designed (no repeated re-auth, matching why "Internal"
-was the right call over "External"). Notable moment: he directly questioned whether pasting the OAuth
-client secret into chat matched security best practices -- correctly cautious. Resolved by having him build
-the credentials JSON himself in a text editor from a template I gave him, so the actual secret value never
-had to pass through the conversation. Not yet committed as of this entry (just gmail_probe.py to add).
-**Next action:** commit gmail_probe.py, then decide: Phase 3 proper (Drive MCP server + wiring specialists
-to actually use it, removing the "no Drive access" caveats).
+**Where we are:** Phases 2, 4, 5 are DONE (pushed through 781497c). Phase 3 (Google Drive) is now ALSO DONE
+and live-proven: real Drive MCP server, wired into the specialists' shared cached prefix, real OAuth consent
+completed for drive.readonly, search mechanism verified working (found 3 real files on a broad query), and
+the full pipeline run confirmed the "no matching policy docs" case threads through honestly end to end.
+Andrew deliberately chose NOT to stage a sample policy document right now -- revisiting that once real
+Riptide policy content actually exists in Drive, rather than fabricating placeholder content today.
+**Next action:** commit this Phase 3 work (about to happen), then decide what's next -- Phase 6 polish, or
+just consider the core build done and revisit Drive once real policy content exists. Nothing else is
+blocking; every phase's mechanism is live-proven even where real data is still absent (Drive policy docs,
+a naturally-occurring Tier-1 Evaluator result) -- both are honest, explained, non-blocking gaps, not bugs.
 **Runtime fact worth remembering:** the Notion tracker's Agency select field originally only had
 SEC/FINRA/State/Other (a leftover from a different, financial-services Riptide template) -- fixed live via
 mcp_servers/notion_tracker/writer.ensure_agency_options(), now includes the two healthcare agency names,
@@ -306,8 +305,65 @@ for-loop):
 - 59 tests total pass (10 new this pass), ruff clean.
 
 ## Phase 3: MCP Tool Layer
-*Pending -- the mcp_servers/ real-MCP work above is now the foundation this phase builds on (Google Drive
-would follow the same client.py + server.py + real MCP tool pattern)*
+**Status: done and live-proven (2026-07-11)** -- built after Phase 5, once Andrew finished the Google Cloud
+Console OAuth setup (Internal Workspace app "Riptide RIA", Desktop app client, drive.readonly + gmail.send
+scopes added together on ONE consent screen -- confirmed a single OAuth client can request scopes across
+multiple APIs, no need for separate per-API apps).
+
+### Shared OAuth refactor (done)
+Building the Drive client meant a SECOND scope (drive.readonly, distinct from Gmail's gmail.send) -- a
+cached token is only valid for the exact scopes it was granted, so this needed its own token file, not a
+reused one. Factored the credential-loading logic (previously duplicated inside mcp_servers/gmail/client.py)
+into a shared mcp_servers/google_auth.py: `get_credentials(settings, scopes, token_name)`. Renamed Gmail's
+token file from the old generic "google_token.json" to "gmail_token.json" for clarity now that "drive_
+token.json" exists alongside it -- moved the existing working token file rather than making Andrew re-click
+Allow for something that already worked.
+
+### mcp_servers/google_drive/ (done)
+- client.py: search_policy_documents (Drive `fullText contains` search) + fetch_document_text (downloads
+  raw files, exports Google-native Docs/Sheets/Slides to plain text/CSV first since they have no raw bytes).
+  User data access (real files a human organized), not the hidden App Data folder -- confirmed this
+  distinction with Andrew before building, since he asked directly and it determines the correct scope.
+- server.py: real FastMCP server (search_drive_documents, get_drive_document_text), registered in .mcp.json
+  alongside federal-register and notion-tracker.
+- Read-only: no Evaluator-approval gate needed, consistent with every other read-only client.
+
+### Wired into specialists, NOT given as a per-specialist tool (deliberate architecture choice)
+Considered giving each specialist its own live Drive-search tool (like the Evaluator's Notion precedent
+tool), but rejected it: the three specialists share ONE cached document prefix specifically because they
+carry no tools/system prompt, which is what lets cache_read stay non-zero across all three (proven
+repeatedly since Phase 2 step 2). Adding a tool -- even the same one -- to each specialist would vary the
+prefix structure per specialist and break that cache-sharing. Instead: ria/caching.py's fetch_drive_context()
+does ONE Drive search per document (by primary_agency) BEFORE building the prefix, and
+cached_document_prefix() gained a third block stating plainly whether anything was found -- real content or
+an honest "No matching internal policy documents were found" -- so the shared-prefix trick stays intact and
+specialists never have to guess whether Drive was actually checked. ria/specialists.py's blanket "you do NOT
+have Drive access" note is gone, replaced with an instruction to read what's actually in the cached context.
+
+### Live proof (done)
+- mcp_probe.py extended to include the Drive server -- first run hung because Andrew had multiple browsers
+  open and the OAuth callback didn't land back on the listening local server; killed the stuck task
+  (TaskStop) and reran cleanly -- worked on retry, real MCP protocol confirmed for all three servers.
+- Verified the search mechanism genuinely works (not just "returns without erroring") with a deliberately
+  broad query ("a") -- found 3 real files in Andrew's actual Drive (meeting notes, a partner guide, a video),
+  proving auth + search + API calls all function; a narrower "policy" search correctly found nothing, since
+  none of those files are healthcare policy content. Honest result, not a bug.
+- Full pipeline run (`main.py --analyze --limit 1`) confirmed the whole chain end to end: drive_search
+  ran automatically, logged matches=0 correctly, and the specialists' cached prefix + reasoning correctly
+  reflected "nothing found" -- cache-sharing still intact with the new 3-block structure (cache_write on
+  materiality, cache_read on the other two, same pattern as always).
+- Andrew asked directly how to get real signal here rather than always hitting the "nothing found" path.
+  Decision: NOT worth building a Drive-write capability (the system only ever needs to READ policy docs,
+  writing one is a one-off human setup task, not a pipeline capability) -- instead offered to have him
+  create one clearly-labeled test policy doc himself (2 min, no new scope) so the "found + used it" path
+  could be proven too, same pattern as the Notion Tier-1 synthetic proof. He chose to defer this until real
+  Riptide policy content actually exists, rather than fabricate placeholder content now -- a legitimate,
+  honest call consistent with this whole project's "no theater" standard.
+- Real gitignore gap caught before committing: the token files are named "gmail_token.json"/
+  "drive_token.json", which do NOT match the `config/google_*.json` pattern added back in Phase 5 -- they
+  were about to be committed as real, live OAuth refresh tokens. Caught via a careful `git status` read
+  (not a blind `git add -A`) before staging anything. Fixed by adding `config/*_token.json` to .gitignore.
+- 90 tests pass, ruff clean.
 
 ## Phase 4: Evaluator + Execution Gate
 **Status: in progress (2026-07-11)**

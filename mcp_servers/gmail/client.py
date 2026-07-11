@@ -16,30 +16,14 @@ from __future__ import annotations
 import base64
 import os
 from email.mime.text import MIMEText
-from pathlib import Path
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-from ria.settings import PROJECT_ROOT, Settings, get_settings
+from mcp_servers.google_auth import credentials_path, get_credentials, is_configured
+from ria.settings import Settings, get_settings
 
 _SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
-
-
-def _credentials_path(settings: Settings) -> Path:
-    return PROJECT_ROOT / settings.google_credentials_path
-
-
-def _token_path(settings: Settings) -> Path:
-    return _credentials_path(settings).with_name("google_token.json")
-
-
-def is_configured(settings: Settings | None = None) -> bool:
-    """True once the operator has downloaded OAuth credentials (Phase 3 setup)."""
-    settings = settings or get_settings()
-    return bool(settings.google_credentials_path) and _credentials_path(settings).exists()
+_TOKEN_NAME = "gmail_token.json"
 
 
 def _require_approval() -> None:
@@ -50,24 +34,6 @@ def _require_approval() -> None:
         )
 
 
-def _get_credentials(settings: Settings) -> Credentials:
-    """Load the cached token, refreshing it or running the one-time interactive consent flow
-    (opens a browser) as needed. An Internal Workspace app's refresh token doesn't expire, so
-    this should only ever prompt interactively once."""
-    token_path = _token_path(settings)
-    creds = None
-    if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), _SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(str(_credentials_path(settings)), _SCOPES)
-            creds = flow.run_local_server(port=0)
-        token_path.write_text(creds.to_json(), encoding="utf-8")
-    return creds
-
-
 def send_escalation_email(subject: str, body: str, settings: Settings | None = None) -> str:
     """Send an escalation notification email. REAL external side effect -- requires
     RIA_EVALUATOR_APPROVED=1 and Phase 3's OAuth setup. Returns the sent message's id."""
@@ -75,10 +41,10 @@ def send_escalation_email(subject: str, body: str, settings: Settings | None = N
     settings = settings or get_settings()
     if not is_configured(settings):
         raise RuntimeError(
-            f"Google OAuth credentials not found at {_credentials_path(settings)} -- Phase 3 "
+            f"Google OAuth credentials not found at {credentials_path(settings)} -- Phase 3 "
             "setup isn't done yet (see scratchpad/scratchpad.md for the Google Cloud Console steps)."
         )
-    creds = _get_credentials(settings)
+    creds = get_credentials(settings, _SCOPES, _TOKEN_NAME)
     service = build("gmail", "v1", credentials=creds)
 
     message = MIMEText(body)

@@ -7,6 +7,10 @@
     "notion-tracker": {
       "command": ".venv/Scripts/python.exe",
       "args": ["-m", "mcp_servers.notion_tracker.server"]
+    },
+    "google-drive": {
+      "command": ".venv/Scripts/python.exe",
+      "args": ["-m", "mcp_servers.google_drive.server"]
     }
   }
 }

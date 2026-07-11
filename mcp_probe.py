@@ -41,8 +41,12 @@ async def main() -> None:
         "Notion tracker MCP server", "mcp_servers.notion_tracker.server",
         "search_tracker", {"search_term": "", "limit": 3},
     )
-    print("\nBoth servers answered over real MCP protocol (stdio, list_tools + call_tool) -- "
-          "not a Python import.")
+    await _probe(
+        "Google Drive MCP server", "mcp_servers.google_drive.server",
+        "search_drive_documents", {"query": "policy", "limit": 3},
+    )
+    print("\nAll three servers answered over real MCP protocol (stdio, list_tools + call_tool) "
+          "-- not a Python import.")
 
 
 if __name__ == "__main__":

@@ -5,15 +5,16 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phase 2 in progress. Step 1 (full-document cache reuse) and step 2 (three specialists
-chained over that cache) are both DONE and proven live.
-**Next action:** an analysis skill (.claude/skills/) that packages the specialist outputs into a readable
-report, then the Evaluator built on the Claude Agent SDK (the one deliberate SDK component -- see
+**Where we are:** Phase 2 is functionally wrapped. Step 1 (full-document cache reuse), step 2 (three
+specialists chained over that cache), and step 3 (the regulatory-report skill) are all DONE and proven live.
+**Next action:** the Evaluator built on the Claude Agent SDK (the one deliberate SDK component -- see
 Architecture Direction). After that: Phase 3 (Google OAuth) / Phase 4 (Evaluator gate wired into the
 pipeline) / Phase 5 (Synthesizer + DOCX/PPTX) / Phase 6 (polish).
-**Repo state:** main.py + ria/specialists.py + specialist_probe.py + tests/unit/test_specialists.py staged
-for commit as of this entry (Phase 2 step 2); last pushed commit before this was 4f4b492. CI (ruff + pytest)
-runs on push via GitHub Actions.
+**Repo state:** commit 79e320e (Phase 2 step 2) is local, NOT YET PUSHED -- Andrew chose to batch this with
+step 3 rather than push after every step. Step 3's files (.claude/skills/regulatory-report/, main.py
+metadata fix, .gitignore) are ready to commit next; ask Andrew whether to push now that Phase 2 is fully
+wrapped, or keep batching into the Evaluator work. Last pushed commit: a5f648a. CI (ruff + pytest) runs on
+push via GitHub Actions.
 **Runtime facts:** model routing operator-pinned in .env (haiku classify / sonnet specialists / opus evaluator /
 sonnet synth); Notion data_source_id lives in .env; governance hooks in .claude/settings.json (review via /hooks).
 Claude Code driver model switched to Sonnet 5 this session (`/model sonnet`) to save cost during the Phase 2
@@ -174,9 +175,21 @@ skills, hooks, headless -p) plus thin, legible Python that I write and he review
   ACROSS process runs, not just within one -- a stronger result than we set out to prove.
 - 33 tests pass (13 new), ruff clean
 
-### Step 3 -- next: analysis skill + Agent SDK Evaluator
-- .claude/skills/ package that turns specialist output into a readable report (Skills CCAF surface)
-- Evaluator gate on the Claude Agent SDK (the one deliberate SDK component -- Architecture Direction)
+### Step 3 -- regulatory-report skill (done)
+- .claude/skills/regulatory-report/SKILL.md: human-invoked (/regulatory-report [N]), instructs Claude to run
+  `main.py -p --analyze --limit N` (default N=3, cost-conscious) and render the JSON as markdown DIRECTLY --
+  deliberately NOT a Python templating script, per the config-over-code/harness-first direction. Distinct
+  from the future Synthesizer agent (Phase 5), which will auto-generate DOCX/PPTX unattended.
+- Building the report against real output caught a real gap: main.py's JSON entries had no agency /
+  publication_date / html_url, so a report couldn't cite its source. Fixed in main.py (three fields added
+  to the entry dict, sourced from the RegulatoryDocument already in hand -- no new fetch).
+- Live-rendered outputs/reports/2026-07-11-regulatory-report.md by hand-executing the skill's own
+  instructions once (proof the instructions are followed): doc 2026-14073 (FDA proposed rule on distributed
+  drug manufacturing establishments), materiality 42/100 medium, 10 processes, 9 gaps (2 critical) -- same
+  document as the specialist_probe/main.py --analyze runs, so this run's cache_write=0, cache_read=57360
+  (still warm from those earlier calls). outputs/ added to .gitignore -- reports are regenerable runtime
+  artifacts, same treatment as logs/*.jsonl.
+- 33 tests still pass, ruff clean (no new Python logic to test -- the skill is markdown, not code)
 
 ## Phase 3: MCP Tool Layer
 *Pending*

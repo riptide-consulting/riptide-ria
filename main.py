@@ -46,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
         entry = {
             "document": doc.document_number,
             "title": doc.title,
+            "agency": doc.primary_agency,
+            "document_type": doc.document_type,
+            "publication_date": str(doc.publication_date),
+            "html_url": doc.html_url,
             **decision,
             "cache_write": usage.cache_creation_input_tokens,
             "cache_read": usage.cache_read_input_tokens,

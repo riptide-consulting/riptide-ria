@@ -18,18 +18,22 @@ yourself, directly -- do not write a Python templating script for this.
 
 1. **Determine scope.** If the skill args contain a positive integer, use it as the
    document limit. Otherwise default to **3**. Keep this modest by default: each document
-   costs one Haiku classify call plus up to three Sonnet specialist calls, so a large
-   limit is real spend, not a free preview.
+   costs one Haiku classify call plus up to three Sonnet specialist calls (plus one Opus
+   Evaluator call if `--evaluate` is used), so a large limit is real spend, not a free
+   preview. Only add `--evaluate` if the args explicitly ask for tier/escalation decisions,
+   not by default -- it's the most expensive step (Opus, Agent SDK, a Notion lookup call).
 
 2. **Run the pipeline** from the repo root using the project's virtualenv interpreter:
    ```
    .venv/Scripts/python.exe main.py -p --analyze --limit <N>
+   .venv/Scripts/python.exe main.py -p --analyze --evaluate --limit <N>   # if tier decisions were requested
    ```
    This is read-only against the Federal Register API and calls the Anthropic API to
    analyze -- it has no external side effects (no writes to Notion/Drive/git), so it does
    not require Evaluator approval. Output is one JSON object per line (see
-   `main.py`/`ria/specialists.py` for the exact shape: classifier fields plus an optional
-   `specialists` dict keyed by `materiality` / `process_impact` / `gap_analyzer`).
+   `main.py`/`ria/specialists.py`/`ria/evaluator.py` for the exact shape: classifier fields
+   plus an optional `specialists` dict keyed by `materiality` / `process_impact` /
+   `gap_analyzer`, plus an optional `evaluation` dict when `--evaluate` was used).
 
 3. **Render one markdown section per document**, in the order the pipeline returned them:
    - Header: document number, title, agency, publication date, source URL.
@@ -43,16 +47,20 @@ yourself, directly -- do not write a Python templating script for this.
    - If a document has no `specialists` key at all (classifier routed to nothing), say so
      in one line instead of leaving a blank section -- never let an empty result look like
      a missing one.
+   - If `evaluation` is present: autonomy tier, execute/escalate booleans, overall
+     confidence, enforcement_detected, flags, and human_review_notes. State plainly that
+     `execute=True` is a recommendation only -- no auto-write capability exists yet, so
+     nothing was actually done about this document.
 
 4. **Never include full document body text** in the report -- only the structured
    summaries and reasoning the specialists already produced (root CLAUDE.md: summaries
    only, never full regulatory text logged/output verbatim).
 
 5. **Add a run-summary footer**: model routing actually used (read `MODEL_CLASSIFIER` /
-   `MODEL_SPECIALIST` from `.env` -- do not hardcode model names in the report), and total
-   prompt-cache tokens written/read summed across the JSON lines (`cache_write` /
-   `cache_read` fields) -- a quick, honest signal of how much the run actually cost versus
-   reused.
+   `MODEL_SPECIALIST` from `.env`, plus `MODEL_EVALUATOR` if `--evaluate` ran -- do not
+   hardcode model names in the report), and total prompt-cache tokens written/read summed
+   across the JSON lines (`cache_write` / `cache_read` fields) -- a quick, honest signal of
+   how much the run actually cost versus reused.
 
 6. **Save the report** to `outputs/reports/<YYYY-MM-DD>-regulatory-report.md` (create the
    directory if it doesn't exist; use the date from the run, not a placeholder), then print

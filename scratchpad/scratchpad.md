@@ -5,20 +5,23 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phase 2 is functionally wrapped. Step 1 (full-document cache reuse), step 2 (three
-specialists chained over that cache), and step 3 (the regulatory-report skill) are all DONE and proven live.
-**Next action:** the Evaluator built on the Claude Agent SDK (the one deliberate SDK component -- see
-Architecture Direction). After that: Phase 3 (Google OAuth) / Phase 4 (Evaluator gate wired into the
-pipeline) / Phase 5 (Synthesizer + DOCX/PPTX) / Phase 6 (polish).
-**Repo state:** commit 79e320e (Phase 2 step 2) is local, NOT YET PUSHED -- Andrew chose to batch this with
-step 3 rather than push after every step. Step 3's files (.claude/skills/regulatory-report/, main.py
-metadata fix, .gitignore) are ready to commit next; ask Andrew whether to push now that Phase 2 is fully
-wrapped, or keep batching into the Evaluator work. Last pushed commit: a5f648a. CI (ruff + pytest) runs on
-push via GitHub Actions.
+**Where we are:** Phase 2 is DONE, including the Evaluator (the one deliberate Claude Agent SDK component).
+All four steps -- full-document cache reuse, three chained specialists, the regulatory-report skill, and the
+SDK-backed Evaluator -- are built and proven live end to end (ingest -> classify -> specialists -> evaluate).
+**Next action:** commit + push this step (evaluator.py + evaluator_probe.py + main.py --evaluate + skill
+update + requirements.txt), then decide the next phase: Phase 3 (Google OAuth, MCP tool layer) / Phase 4
+(wire execute=True to a real Notion write -- the actual execution gate) / Phase 5 (Synthesizer + DOCX/PPTX).
+Nothing currently WRITES to Notion or acts on an Evaluator decision -- execute=True is report-only until
+Phase 4 exists. That's a deliberate, not-yet-closed gap.
+**Repo state:** as of this entry, evaluator work is committed locally but ask Andrew before pushing (he's
+been choosing when). Last GitHub-synced commit: 1d97308. CI (ruff + pytest) runs on push via GitHub Actions.
 **Runtime facts:** model routing operator-pinned in .env (haiku classify / sonnet specialists / opus evaluator /
 sonnet synth); Notion data_source_id lives in .env; governance hooks in .claude/settings.json (review via /hooks).
 Claude Code driver model switched to Sonnet 5 this session (`/model sonnet`) to save cost during the Phase 2
-build; the app's own operator-pinned routing in .env is untouched by that switch.
+build; the app's own operator-pinned routing in .env is untouched by that switch. claude-agent-sdk==0.2.116
+added to requirements.txt/.venv -- its default transport shells out to a BUNDLED claude.exe CLI binary, not
+a plain API call; ria/evaluator.py explicitly pins `env={"ANTHROPIC_API_KEY": ...}` in ClaudeAgentOptions so
+that subprocess always uses the project's own key rather than whatever auth is ambient in the shell.
 **Fast re-orient:** read this scratchpad top-to-bottom -- the Architecture Direction, Phase 1, and Phase 2
 sections hold the details. Working style: config-over-code, harness-first (see memory + Architecture Direction).
 
@@ -190,6 +193,49 @@ skills, hooks, headless -p) plus thin, legible Python that I write and he review
   (still warm from those earlier calls). outputs/ added to .gitignore -- reports are regenerable runtime
   artifacts, same treatment as logs/*.jsonl.
 - 33 tests still pass, ruff clean (no new Python logic to test -- the skill is markdown, not code)
+
+### Step 4 -- Evaluator on the Claude Agent SDK (done)
+- ria/evaluator.py: the trust-boundary gate, and the ONE deliberate Agent SDK component (everything else in
+  the codebase uses the plain `anthropic` client). agents/evaluator/CLAUDE.md says this agent "CANNOT be
+  bypassed under any circumstances" -- so `compute_tier()` is a pure, deterministic function (confidence
+  thresholds + risk level + enforcement detection -> tier/execute/escalate) and Opus is never even asked to
+  propose a tier in its own structured-output schema. Same proposes-then-code-disposes pattern as the
+  classifier's confidence floor, just made airtight at the schema level here.
+- Gives the Evaluator ONE live tool -- read-only Notion precedent lookup (mcp_servers notion query wrapped
+  via @tool/create_sdk_mcp_server) -- so it's a genuine agentic loop (decide it needs context, fetch it, then
+  answer), not just a heavier way to do forced structured output. Zero built-in tools (`tools=[]`): no
+  filesystem, no shell, nothing but that one read-only lookup. `strict_mcp_config=True` so it ignores any
+  ambient .mcp.json too.
+- Before writing any code: verified the SDK's ACTUAL installed API (0.2.116) against its real source
+  (dataclass fields, tool()/create_sdk_mcp_server() signatures, ResultMessage/AssistantMessage fields,
+  output_format's {"type":"json_schema","schema":...} shape) rather than trusting a research subagent's
+  example blind. It checked out -- but that check caught a real, separate issue: the SDK's default transport
+  shells out to a BUNDLED claude.exe CLI and inherits ambient shell env/auth by default. Fixed by pinning
+  `env={"ANTHROPIC_API_KEY": settings.anthropic_api_key}` in ClaudeAgentOptions, same explicit-credential
+  pattern every other agent in this codebase already uses. Confirmed live: the CLI's own banner said
+  "claude.ai connectors are disabled because ANTHROPIC_API_KEY... takes precedence" -- proof it used the
+  project's key, not a personal login.
+- evaluator_probe.py: live proof, full chain (classify -> all 3 specialists -> evaluate) on the same FDA
+  doc (2026-14073). Two independent live runs, both high quality: Opus called query_notion_precedent three
+  times unprompted (tracker is still empty -- Phase 4 hasn't written anything yet -- so it honestly reported
+  "no precedent found" both times), caught a genuine tension between materiality's risk=medium and
+  gap_analyzer's 2 critical gaps, correctly distinguished restated existing statutory penalty language from a
+  NEW penalty, and on the second run independently surfaced a sharper point: whether the foreign-establishment
+  registration duty is already in force via the PREVENT Pandemics Act regardless of this proposed rule's
+  status. Both runs landed tier=3/escalate=True (confidence ~0.6, below the 0.75 floor, AND enforcement
+  language detected -- two independent hard triggers). Cost ~$0.42-0.44/call -- a deliberate governance gate,
+  not meant for high-frequency use.
+- Found and fixed a real bug from the first live run: returning early from inside `async for message in
+  query(...)` once ResultMessage arrived forced an abrupt cancellation that raced the SDK's internal cleanup
+  ("aclose(): asynchronous generator is already running" on teardown -- didn't corrupt the result, but noisy
+  and worth fixing properly). Fixed by letting the loop reach its own natural end (query() is one-shot, so it
+  finishes right after ResultMessage anyway) and returning after. Re-ran live to confirm: clean, no error.
+- main.py: added `--evaluate` flag (implies --analyze; Opus is the priciest call in the pipeline so it's
+  strictly opt-in). Table output gets an "Evaluator decisions" section, explicit about execute=True being a
+  recommendation only -- nothing auto-writes anywhere yet (that's Phase 4, the actual execution gate).
+  regulatory-report skill updated to describe --evaluate as an optional extra layer.
+- requirements.txt: added claude-agent-sdk==0.2.116.
+- 49 tests pass (16 new -- compute_tier boundaries/overrides + _detect_enforcement), ruff clean.
 
 ## Phase 3: MCP Tool Layer
 *Pending*

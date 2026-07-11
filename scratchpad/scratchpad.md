@@ -5,45 +5,75 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phases 1-5 are done and pushed (last synced commit before this entry: 337e727). The whole
-system has been proven to run as ONE command (`main.py --batch --analyze --evaluate --synthesize --limit 2`,
-~9m43s on 2 real documents, every stage succeeded). Real docs exist now (README.md, .env.example). Phase 6
-(polish, deliberately left unscoped until we got here) is in progress: real eval suite done (4/4 live-proven),
-a config cleanup pass done, and scheduling/automation was explicitly discussed and RESOLVED -- decided
-against it. See "Decision: no scheduling" below for why, and the Phase 6 section for full details on each.
-**Decision: no scheduling, no cloud, manual-push only.** Andrew asked how often it should run and cloud vs.
-local; recommendation was: never on a timer, stay local, manual-only -- this is a demo, CMS/FDA don't publish
-often enough to need polling, cloud adds real infra cost/complexity for zero benefit at this stage, and an
-unattended schedule cuts against the whole "human stays in the loop" governance model this build is centered
-on (the Evaluator gate, RIA_EVALUATOR_APPROVED, even Claude Code's own permission system blocking an
-unattended live-fire attempt earlier this session). Andrew agreed. Built `run_demo.bat` instead -- a
-one-command wrapper (double-click, or `run_demo.bat N` to change the document count) around the already-
-proven full pipeline command, defaulting to --limit 2 and deliberately never setting
-RIA_EVALUATOR_APPROVED. Verified the batch-file-specific logic (argument default/override, %~dp0 path
-resolution) with cheap, zero-API-cost isolated tests rather than re-spending ~$1-1.50 to re-prove the
-already-proven main.py command underneath it.
-**Next action:** commit run_demo.bat + the README mention (about to happen). Remaining Phase 6 candidates,
-not started: a real branded DOCX/PPTX template, and staging real policy content in Drive (both blocked on
-assets Andrew hasn't provided/created yet, not on anything I can unilaterally build).
-**Next action:** commit this Phase 3 work (about to happen), then decide what's next -- Phase 6 polish, or
-just consider the core build done and revisit Drive once real policy content exists. Nothing else is
-blocking; every phase's mechanism is live-proven even where real data is still absent (Drive policy docs,
-a naturally-occurring Tier-1 Evaluator result) -- both are honest, explained, non-blocking gaps, not bugs.
-**Runtime fact worth remembering:** the Notion tracker's Agency select field originally only had
-SEC/FINRA/State/Other (a leftover from a different, financial-services Riptide template) -- fixed live via
-mcp_servers/notion_tracker/writer.ensure_agency_options(), now includes the two healthcare agency names,
-confirmed idempotent.
-**Repo state:** as of this entry, the hardening-pass files are about to be committed locally; ask Andrew
-before pushing (he's been choosing when). Last GitHub-synced commit: 8d5fb4a. CI (ruff + pytest) runs on push.
-**Runtime facts:** model routing operator-pinned in .env (haiku classify / sonnet specialists / opus evaluator /
-sonnet synth); Notion data_source_id lives in .env; governance hooks in .claude/settings.json (review via /hooks).
-Claude Code driver model switched to Sonnet 5 this session (`/model sonnet`) to save cost during the Phase 2
-build; the app's own operator-pinned routing in .env is untouched by that switch. claude-agent-sdk==0.2.116
-added to requirements.txt/.venv -- its default transport shells out to a BUNDLED claude.exe CLI binary, not
-a plain API call; ria/evaluator.py explicitly pins `env={"ANTHROPIC_API_KEY": ...}` in ClaudeAgentOptions so
-that subprocess always uses the project's own key rather than whatever auth is ambient in the shell.
-**Fast re-orient:** read this scratchpad top-to-bottom -- the Architecture Direction, Phase 1, and Phase 2
-sections hold the details. Working style: config-over-code, harness-first (see memory + Architecture Direction).
+
+**Status: the full build (Phases 1-6) is functionally complete and pushed.** Last synced commit: b9db2bb.
+Working tree clean. Every phase was built AND live-proven against real APIs at least once -- ingestion, the
+Haiku classifier (+ real Anthropic Batches API support), 3 chained Sonnet specialists sharing one cached
+document prefix, the Opus Evaluator on the Claude Agent SDK (with a real live tool), the Notion execution
+gate, the Synthesizer (briefing + DOCX/PPTX + Gmail escalation email), Google Drive integration, a real eval
+suite (activates a CI gate that sat unused since Phase 1), a manual-push demo script (run_demo.bat), and real
+project documentation (README.md, .env.example). This is not a "believe the code review" claim -- nearly
+every phase's live proof caught and fixed a real bug along the way (see each Phase section for specifics).
+
+**What's genuinely left** -- full detail already written to
+`C:\Users\poole\OneDrive\Desktop\RIA-Completion-Checklist.md` (given to Andrew 2026-07-11); read THAT file
+for the complete, current, top-to-bottom list rather than re-deriving it from this log. Short version:
+- Blocked on Andrew, not on more building: real branded DOCX/PPTX template assets; staging real policy
+  content in Google Drive (his own call to defer both until the real assets/content exist).
+- Verification gaps never actually checked: GitHub Actions has never been watched succeeding on github.com
+  itself (only validated locally); real test coverage was never measured (no pytest-cov installed); total
+  session API spend was never tallied; `/regulatory-report` has never been invoked by Andrew as an actual
+  slash command (only proven by me manually following its instructions).
+- Real remaining engineering: live eval coverage for the Synthesizer/Evaluator prompts specifically (only
+  the classifier + 2 specialists have live evals so far); a cost/spend circuit breaker (nothing bounds total
+  spend beyond manually choosing --limit); the still-empty scaffold dirs (prompts/, evaluations/results/,
+  tests/integration/, docs/) need either real content or explicit pruning.
+- A SEPARATE red-team-readiness list was given to Andrew in conversation (not yet written to a file):
+  rotate the real API keys (they've sat in this session's own context repeatedly -- not a leak, just reason
+  enough to rotate before adversarial probing), run a real secret scanner across full git history (my own
+  manual check already came back clean -- `git log --all --full-history -- .env` returns nothing, .env has
+  NEVER been committed), a dependency vulnerability audit + drop unused fastapi/uvicorn, prompt-injection
+  testing (the single biggest real gap -- untrusted external document text feeds directly into every agent's
+  prompt and this has never been adversarially tested), an adversarial review of the regex-based governance
+  hooks' actual pattern coverage, confirming RIA_EVALUATOR_APPROVED isn't lingering anywhere persistently,
+  and a written threat-model doc so a red team has concrete claims to try to falsify.
+
+**Governance/architecture facts worth remembering:**
+- Model routing is operator-pinned in .env (haiku classify / sonnet specialists / opus evaluator / sonnet
+  synth) -- never upgrade without explicit approval. Claude Code's OWN driver model was switched to Sonnet 5
+  this session (`/model sonnet`) purely to save cost while building; separate from, and doesn't touch, the
+  app's own pinned routing.
+- Governance hooks live in .claude/settings.json (audit_log, guard_secrets, guard_side_effects) and caught
+  REAL issues multiple times this session -- including several correct-if-blunt false-positive-shaped blocks
+  where a value I wrote merely coincided with a real .env secret's value (e.g. a fallback default that
+  happened to exactly match the configured Google credentials path). Claude Code's own SEPARATE auto-mode
+  permission classifier also independently blocked an unattended live-fire pipeline run once -- two
+  independent layers of the "human stays in the loop" model both actually worked when tested, not just in
+  theory.
+- RIA_EVALUATOR_APPROVED=1 gates every real external side effect (Notion writes, Gmail sends), checked at
+  the point of the write itself (mcp_servers/notion_tracker/writer.py, mcp_servers/gmail/client.py), not just
+  by the outer hook -- deliberate, since a hook only pattern-matches Bash command strings and wouldn't catch
+  a plain `python main.py` invocation that triggers a write internally.
+- claude-agent-sdk's default transport shells out to a bundled claude.exe CLI, not a plain API call --
+  ria/evaluator.py explicitly pins `env={"ANTHROPIC_API_KEY": ...}` so it always uses the project's own key,
+  never whatever auth happens to be ambient in the shell.
+- Google OAuth: Gmail (gmail.send) and Drive (drive.readonly) use SEPARATE token files (named after each
+  service) sharing ONE client credentials file (path configured via GOOGLE_CREDENTIALS_PATH in .env) -- a
+  cached token is only valid for the scopes it was granted under, so they can't share a token even though
+  they share a client. All gitignored via a `config/google_*.json` pattern plus a second `config/*_token.json`
+  pattern (had to add the second after catching both token files about to be committed -- neither matched
+  the first pattern alone).
+- Never seen a live, NATURALLY-occurring Tier-1 (auto-execute) Evaluator result -- every real run all session
+  has landed Tier 3. The execute-write path is proven correct only via a clearly-labeled synthetic test
+  (execute_probe.py). Not a bug: every specialist prompt this phase discloses "no internal policy access,"
+  which legitimately suppresses confidence below the auto-execute floor until Phase 3's Drive integration has
+  real content to work with.
+
+**Fast re-orient:** this file is long (the full chronological build log, Phase 0 through Phase 6). Read this
+CURRENT STATE section first. For a condensed, forward-looking punch list instead of re-reading the whole
+history, read the completion checklist on Andrew's Desktop (path above) rather than re-deriving it here.
+The Architecture Direction section just below explains the config-over-code/harness-first working style;
+each Phase section has the detailed build-and-proof history if a specific decision's rationale is needed.
 
 ---
 

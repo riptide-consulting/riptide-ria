@@ -5,16 +5,16 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phases 2 and 4 done + pushed (commit d6d4ff2). Phase 5 (Synthesizer) CORE IS DONE and
-live-proven end to end: briefing generation, DOCX, and PPTX all work against real data -- verified by
-actually reopening the generated files, not just checking paths were logged. Phase 3 (Google) is IN
-PROGRESS -- Andrew is doing OAuth setup in Google Cloud Console right now (Internal Workspace app,
-drive.readonly + gmail.send scopes); I built ria/synthesizer.py and mcp_servers/gmail/client.py in parallel
-so neither of us was blocked on the other.
-**Next action:** once Andrew finishes OAuth and saves the downloaded credentials JSON at the path configured
-by GOOGLE_CREDENTIALS_PATH in .env (gitignored via the pattern `config/google_*.json`), live-test the
-escalation email send for real -- that's the one piece of Phase 5 that's correctly built but not yet
-live-proven, since it hard-depends on his setup. Then Phase 3 proper (Drive MCP server + wiring specialists
+**Where we are:** Phases 2, 4, and 5 are all DONE and fully live-proven, including the Gmail piece --
+Andrew finished the Google Cloud Console OAuth setup (Internal Workspace app, "Riptide RIA", Desktop app
+client, drive.readonly + gmail.send scopes) and gmail_probe.py sent two real emails: the first triggered
+the one-time interactive consent (browser popup, he clicked Allow), the second sent with ZERO interaction --
+confirming the cached refresh token works exactly as designed (no repeated re-auth, matching why "Internal"
+was the right call over "External"). Notable moment: he directly questioned whether pasting the OAuth
+client secret into chat matched security best practices -- correctly cautious. Resolved by having him build
+the credentials JSON himself in a text editor from a template I gave him, so the actual secret value never
+had to pass through the conversation. Not yet committed as of this entry (just gmail_probe.py to add).
+**Next action:** commit gmail_probe.py, then decide: Phase 3 proper (Drive MCP server + wiring specialists
 to actually use it, removing the "no Drive access" caveats).
 **Runtime fact worth remembering:** the Notion tracker's Agency select field originally only had
 SEC/FINRA/State/Other (a leftover from a different, financial-services Riptide template) -- fixed live via
@@ -437,14 +437,23 @@ correctly BLOCKED with a clear message (RIA_EVALUATOR_APPROVED not set). Re-open
 real and verified their actual content (not just that save() didn't throw): DOCX has the right title + a
 13-row table (header + 12 actions); PPTX has all 4 expected slides with the right titles.
 
+### Gmail live proof (done)
+gmail_probe.py sent two real emails via the RIA_EVALUATOR_APPROVED-gated send_escalation_email(). First run
+printed a Google OAuth authorization URL and opened a browser; Andrew clicked Allow once. Second run sent
+immediately with NO interactive step at all -- proves the cached refresh token (config/google_token.json,
+gitignored via the same `config/google_*.json` pattern as the credentials file) works exactly as intended,
+confirming the "Internal" Workspace app choice over "External" was correct (External apps in testing mode
+get a 7-day token expiry; this doesn't). Message ids: 19f5260e64b53e14, then 19f52619b5524c4c.
+
 ### Still open
-- Gmail send itself: code-complete, gated correctly, cannot be live-proven until Andrew's OAuth setup
-  finishes (in progress as of this entry).
 - No real branded Riptide template exists yet -- current output is clean but generic. Not blocking; drop a
   template at the configured path whenever one exists, no code change needed.
 - Notion write within synthesize() still hasn't been live-proven from a NATURALLY occurring Tier-1 result
   (same open item carried from Phase 4) -- the mechanism itself has two independent live proofs now (the
   Agency schema fix, and the earlier synthetic execute_probe.py write), so this is a low-concern gap.
+- Phase 3 proper (Drive) is NOT done -- only the OAuth/credentials plumbing is. No Drive MCP server exists
+  yet, and specialists still explicitly disclose "no internal policy access" in every prompt. That's the
+  next real unit of work if we pick Phase 3 back up.
 
 ## Phase 6: Optimization + Polish
 *Pending -- not yet scoped. Candidates once Phase 3 finishes: a real branded template, wiring the whole

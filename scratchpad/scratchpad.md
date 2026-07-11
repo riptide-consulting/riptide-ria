@@ -5,14 +5,20 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phase 2 in progress. Step 1 (full-document prompt-cache reuse) DONE and proven live.
-**Next action:** Phase 2 step 2 -- build the three specialists (materiality -> process_impact -> gap_analyzer)
-as sequential reads over the shared cached document prefix (ria.caching.ask_over_document); cache_read lights up
-on reads 2+ (chaining + caching CCAF surfaces). Then: an analysis skill, then the Evaluator on the Claude Agent SDK.
-**Repo state:** clean + fully pushed; latest commit 4f4b492. CI (ruff + pytest) runs on push via GitHub Actions.
+**Where we are:** Phase 2 in progress. Step 1 (full-document cache reuse) and step 2 (three specialists
+chained over that cache) are both DONE and proven live.
+**Next action:** an analysis skill (.claude/skills/) that packages the specialist outputs into a readable
+report, then the Evaluator built on the Claude Agent SDK (the one deliberate SDK component -- see
+Architecture Direction). After that: Phase 3 (Google OAuth) / Phase 4 (Evaluator gate wired into the
+pipeline) / Phase 5 (Synthesizer + DOCX/PPTX) / Phase 6 (polish).
+**Repo state:** main.py + ria/specialists.py + specialist_probe.py + tests/unit/test_specialists.py staged
+for commit as of this entry (Phase 2 step 2); last pushed commit before this was 4f4b492. CI (ruff + pytest)
+runs on push via GitHub Actions.
 **Runtime facts:** model routing operator-pinned in .env (haiku classify / sonnet specialists / opus evaluator /
 sonnet synth); Notion data_source_id lives in .env; governance hooks in .claude/settings.json (review via /hooks).
-**Fast re-orient:** read this scratchpad top-to-bottom -- the Architecture Direction, Phase 1, and Phase 2 step 1
+Claude Code driver model switched to Sonnet 5 this session (`/model sonnet`) to save cost during the Phase 2
+build; the app's own operator-pinned routing in .env is untouched by that switch.
+**Fast re-orient:** read this scratchpad top-to-bottom -- the Architecture Direction, Phase 1, and Phase 2
 sections hold the details. Working style: config-over-code, harness-first (see memory + Architecture Direction).
 
 ---
@@ -143,9 +149,34 @@ skills, hooks, headless -p) plus thin, legible Python that I write and he review
   -> cache_read confirmed non-zero. The classifier's 0/0 was a Haiku 4096-token threshold artifact, not a bug.
 - 20 tests pass, ruff clean.
 
-### Step 2 -- specialists (next)
-- materiality / process_impact / gap_analyzer as sequential reads over the shared cached prefix (chaining surface)
-- then an analysis skill + the Evaluator on the Agent SDK
+### Step 2 -- specialists (done)
+- ria/specialists.py: materiality / process_impact / gap_analyzer, each a free-form JSON read over the
+  SAME cached prefix via ria.caching.ask_over_document (no tools/system on any of the three calls -- that's
+  what keeps the prefix match intact across agents; see the module docstring for why tools/system would break it)
+- Each specialist's output schema + constraints come straight from agents/<name>/CLAUDE.md; objective
+  constraints are enforced in code (materiality: impact_score>80 forces risk_level=critical; process_impact:
+  hard cap of 10 affected_processes, truncation logged; gap_analyzer: total_gaps/critical_gaps always derived
+  from the actual list rather than trusting the model's self-report, critical gaps get a fallback
+  remediation_action if the model omits one, PHI/patient-safety gaps can never stay "low" severity)
+- Specialists run WITHOUT Google Drive in this phase (Phase 3); prompts say so explicitly instead of
+  pretending a policy cross-reference happened -- same honesty standard as the Phase 1 cache reporting
+- specialist_probe.py: live proof, forces all three specialists regardless of classifier routing, on a real
+  FDA document (2026-14073, Drug Establishment Registration and Drug Listing Requirements):
+    call 1 [materiality]     write=19120  read=0
+    call 2 [process_impact]  write=0      read=19120
+    call 3 [gap_analyzer]    write=0      read=19120
+  -> cache reuse confirmed across three DIFFERENT agents (not just repeated questions like step 1's probe)
+- main.py: added `--analyze` flag (off by default -- keeps a plain run cheap/Haiku-only like Phase 1).
+  `python main.py --analyze --limit N` runs ingest -> classify -> routed specialists and prints a compact
+  summary. Live run on the same FDA doc: impact=42/medium, 10 affected processes, 9 gaps (2 critical) --
+  and cache_write was 0 / cache_read was 19120 on ALL THREE calls, because the Anthropic server-side cache
+  from specialist_probe.py's run (minutes earlier, separate process) was still warm. Cache reuse persists
+  ACROSS process runs, not just within one -- a stronger result than we set out to prove.
+- 33 tests pass (13 new), ruff clean
+
+### Step 3 -- next: analysis skill + Agent SDK Evaluator
+- .claude/skills/ package that turns specialist output into a readable report (Skills CCAF surface)
+- Evaluator gate on the Claude Agent SDK (the one deliberate SDK component -- Architecture Direction)
 
 ## Phase 3: MCP Tool Layer
 *Pending*

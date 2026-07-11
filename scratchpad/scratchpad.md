@@ -5,16 +5,18 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phase 2 is DONE, including the Evaluator (the one deliberate Claude Agent SDK component).
-All four steps -- full-document cache reuse, three chained specialists, the regulatory-report skill, and the
-SDK-backed Evaluator -- are built and proven live end to end (ingest -> classify -> specialists -> evaluate).
-**Next action:** commit + push this step (evaluator.py + evaluator_probe.py + main.py --evaluate + skill
-update + requirements.txt), then decide the next phase: Phase 3 (Google OAuth, MCP tool layer) / Phase 4
-(wire execute=True to a real Notion write -- the actual execution gate) / Phase 5 (Synthesizer + DOCX/PPTX).
-Nothing currently WRITES to Notion or acts on an Evaluator decision -- execute=True is report-only until
-Phase 4 exists. That's a deliberate, not-yet-closed gap.
-**Repo state:** as of this entry, evaluator work is committed locally but ask Andrew before pushing (he's
-been choosing when). Last GitHub-synced commit: 1d97308. CI (ruff + pytest) runs on push via GitHub Actions.
+**Where we are:** Phase 2 is DONE (caching, chaining, skills, SDK Evaluator), PLUS a hardening pass Andrew
+asked for after reviewing it: real MCP servers (not just a suggestively-named folder) and real batching (not
+just a for-loop) for the classifier, both live-proven, plus a 6-document varied-batch stress test with zero
+failures. See "Hardening pass" under Phase 2 for the full writeup.
+**Next action:** commit + push this hardening pass, then decide the next phase: Phase 3 (Google Drive OAuth
+-- Andrew is waiting on a go-ahead, not blocked) / Phase 4 (wire execute=True to a real Notion write -- the
+actual execution gate) / Phase 5 (Synthesizer + DOCX/PPTX). Nothing currently WRITES to Notion or acts on an
+Evaluator decision -- execute=True is report-only until Phase 4 exists. Deliberate, not yet closed.
+Also still open: never seen a LIVE Tier 1/2 Evaluator result (every real run lands Tier 3 so far -- explained,
+not alarming, but untested; compute_tier() itself is exhaustively unit-tested for every branch).
+**Repo state:** as of this entry, the hardening-pass files are about to be committed locally; ask Andrew
+before pushing (he's been choosing when). Last GitHub-synced commit: 8d5fb4a. CI (ruff + pytest) runs on push.
 **Runtime facts:** model routing operator-pinned in .env (haiku classify / sonnet specialists / opus evaluator /
 sonnet synth); Notion data_source_id lives in .env; governance hooks in .claude/settings.json (review via /hooks).
 Claude Code driver model switched to Sonnet 5 this session (`/model sonnet`) to save cost during the Phase 2
@@ -237,8 +239,70 @@ skills, hooks, headless -p) plus thin, legible Python that I write and he review
 - requirements.txt: added claude-agent-sdk==0.2.116.
 - 49 tests pass (16 new -- compute_tier boundaries/overrides + _detect_enforcement), ruff clean.
 
+### Hardening pass (done) -- Andrew's review of Phase 2, before moving on
+Andrew reviewed the "how's it going" status honestly and called out real gaps rather than letting them ride:
+"batching" and "MCP" were both claimed in the CCAF coverage map but not actually built, and every live proof
+had reused the same one document. All three fixed before touching Phase 3/4:
+
+**Real MCP servers** (previously: mcp_servers/ was just a folder of plain httpx/notion_client functions with
+a suggestive name -- zero actual MCP protocol anywhere except the Evaluator's own in-process tool):
+- mcp_servers/federal_register/server.py + mcp_servers/notion_tracker/server.py: real FastMCP servers
+  (stdio transport), wrapping the existing plain-function clients as MCP tools. FastMCP's @mcp.tool() is a
+  DIFFERENT convention from claude_agent_sdk's @tool -- plain typed return values, auto-generated schema from
+  type hints, not the {"content":[...]} wrapper -- verified against installed source before coding, same
+  discipline as the Evaluator SDK check (would have gotten this wrong by assuming they matched).
+- mcp_servers/notion_tracker/client.py: the Notion-query logic (_title/_select/_checkbox/
+  search_remediation_tracker) MOVED here from its previous home inside ria/evaluator.py -- one implementation,
+  two callers: the Evaluator's in-process SDK tool AND the new standalone MCP server both call it now.
+- mcp_servers/federal_register/client.py: added fetch_document(document_number) (single-doc lookup by
+  document_number) -- a genuine small addition needed so get_document_full_text doesn't have to re-list all
+  recent documents just to resolve one ID.
+- .mcp.json added at repo root, registering both servers so they're connectable from any real MCP client
+  (Claude Code included), not just importable Python.
+- mcp_probe.py: live proof -- spawns each server as an actual subprocess, connects a REAL MCP ClientSession
+  over stdio, calls list_tools() + call_tool(). Both answered over real protocol: federal-register exposed
+  [list_recent_documents, get_document_full_text], notion-tracker exposed [search_tracker], both returned
+  real data. Not an import check -- an actual protocol round-trip.
+- 7 new offline tests (mcp_servers/notion_tracker/client.py's pure helpers + the missing-data-source error).
+
+**Real batching** (previously: only trace of "batching" anywhere was a docstring phrase; main.py was a plain
+for-loop):
+- ria/classifier.py: classify_batch() -- submits every document's classification as ONE Anthropic Batches
+  API call (client.messages.batches.create/retrieve/results) instead of N synchronous calls. Scoped to the
+  classifier ONLY (root CLAUDE.md: "Batch jobs: haiku preferred") -- specialists/Evaluator stay per-document
+  since each depends on THIS document's own prior-stage output, not a batch-shaped problem. Verified the real
+  Batches API shape (Request/MessageBatch/MessageBatchResult types) against installed anthropic==0.116.0
+  source before coding. Factored classify()'s request-building into a shared _request_params() so both the
+  single-call and batch paths stay identical (same cache_control placement, no behavior drift).
+- Falls back to synchronous classify() for any document missing from the batch's results (a batch sub-request
+  failure doesn't drop a document silently -- "no silent caps," same principle as the FR pagination cap).
+- main.py: added `--batch` flag (composes with --analyze/--evaluate).
+- 3 new offline tests for _request_params (tool_choice forcing, cache placement, cross-document identity of
+  the cacheable system block).
+
+**Live proof -- both together, real Batches API + real diversity, not the same document again:**
+`main.py --batch --analyze --limit 6` against 6 REAL, DIFFERENT documents (not 2026-14073 again):
+- Batch classify: submitted, polled 4x every 5s, done in 16 seconds for all 6 (succeeded=6 errored=0).
+- Real diversity confirmed: 3 FDA + 3 CMS; Proposed Rule + Notice; priority high/medium/low all appeared;
+  confidence ranged 0.72-0.92; full-text sizes ranged 2,812-19,120 cache tokens.
+- Classifier routing is genuinely SELECTIVE, not "always all three": one document got gap_analyzer only, two
+  got two-of-three in different combinations. Only 2 of 6 documents triggered all three specialists.
+- ZERO retries, ZERO failures, ZERO warnings across the whole run (checked precisely, not a loose grep) --
+  the free-form JSON parsing in specialists held up across genuinely different document content/lengths.
+- 47,293 tokens written / 59,770 read in cache across the batch.
+- Still-open gap (honestly not closed by this run): none of the 6 documents lacked full_text_url, so the
+  cached_document_prefix abstract-fallback path still hasn't fired live (it IS covered by an offline unit
+  test). Also still haven't seen a live Tier 1/2 Evaluator result -- only ran --analyze here, not --evaluate,
+  to control cost; every --evaluate run all session (different documents now, still just the one from
+  specialist_probe/evaluator_probe) has landed Tier 3. Plausible explanation: real CMS/FDA text commonly
+  carries background statutory penalty language, and every specialist this phase discloses "no internal
+  policy access" per its prompt, which legitimately suppresses confidence -- not confirmed to be a bug, just
+  not yet observed otherwise. compute_tier() itself is exhaustively unit-tested for every branch.
+- 59 tests total pass (10 new this pass), ruff clean.
+
 ## Phase 3: MCP Tool Layer
-*Pending*
+*Pending -- the mcp_servers/ real-MCP work above is now the foundation this phase builds on (Google Drive
+would follow the same client.py + server.py + real MCP tool pattern)*
 
 ## Phase 4: Evaluator + Execution Gate
 *Pending*

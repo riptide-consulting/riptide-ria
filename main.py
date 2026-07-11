@@ -10,6 +10,7 @@ CCAF "headless vs interactive" surface -- the ``-p`` flag makes it pipe-friendly
     python main.py                  # ingest, classify, print a routing table
     python main.py -p               # headless: one JSON object per line to stdout
     python main.py --limit 5        # cap how many documents are classified
+    python main.py --batch          # classify via the Anthropic Batches API (cheaper, async)
     python main.py --analyze        # also run routed specialists (Sonnet; costs more)
     python main.py --evaluate       # also run the Evaluator (Opus; implies --analyze)
 
@@ -25,7 +26,7 @@ import json
 import sys
 
 from mcp_servers.federal_register.client import fetch_full_text, fetch_recent_documents
-from ria.classifier import classify
+from ria.classifier import classify, classify_batch
 from ria.evaluator import evaluate
 from ria.logging_setup import log_event, setup_logging
 from ria.settings import get_settings
@@ -36,6 +37,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Riptide RIA pipeline (ingest + classify [+ analyze [+ evaluate]])")
     parser.add_argument("-p", "--headless", action="store_true", help="emit JSONL to stdout (pipe-friendly)")
     parser.add_argument("--limit", type=int, default=10, help="max documents to classify")
+    parser.add_argument("--batch", action="store_true",
+                         help="classify via the Anthropic Batches API instead of one call per document "
+                              "(cheaper, async; classifier stage only -- specialists/evaluator stay per-document)")
     parser.add_argument("--analyze", action="store_true",
                          help="run routed specialists over full text (Sonnet; off by default -- costs more)")
     parser.add_argument("--evaluate", action="store_true",
@@ -48,12 +52,23 @@ def main(argv: list[str] | None = None) -> int:
     logger = setup_logging(settings)
 
     docs = fetch_recent_documents(settings, logger=logger)[: args.limit]
-    log_event(logger, "pipeline", "run_start", "begin",
-              documents=len(docs), headless=args.headless, analyze=args.analyze, evaluate=args.evaluate)
+    log_event(logger, "pipeline", "run_start", "begin", documents=len(docs), headless=args.headless,
+              batch=args.batch, analyze=args.analyze, evaluate=args.evaluate)
+
+    batch_decisions: dict = {}
+    if args.batch and docs:
+        batch_decisions = classify_batch(docs, settings=settings, logger=logger)
 
     results = []
     for doc in docs:
-        decision, usage = classify(doc, settings=settings, logger=logger)
+        if doc.document_number in batch_decisions:
+            decision, usage = batch_decisions[doc.document_number]
+        else:
+            if args.batch:
+                # No silent gaps: a document missing from the batch (sub-request failure)
+                # still gets classified, just synchronously instead of in the batch.
+                log_event(logger, "pipeline", "batch_fallback", "warn", doc=doc.document_number)
+            decision, usage = classify(doc, settings=settings, logger=logger)
         entry = {
             "document": doc.document_number,
             "title": doc.title,

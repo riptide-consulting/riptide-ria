@@ -65,3 +65,24 @@ def test_extract_returns_none_without_tool():
         content = [Block()]
 
     assert classifier._extract(Resp()) is None
+
+
+def test_request_params_forces_route_tool_choice():
+    params = classifier._request_params(_doc(), "claude-haiku-4-5-20251001", 1024)
+    assert params["tool_choice"] == {"type": "tool", "name": "route"}
+    assert params["model"] == "claude-haiku-4-5-20251001"
+    assert params["max_tokens"] == 1024
+
+
+def test_request_params_caches_system_and_document_blocks():
+    params = classifier._request_params(_doc(), "claude-haiku-4-5-20251001", 1024)
+    assert params["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert params["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_request_params_is_identical_across_documents_except_content():
+    # Same system rubric text -> the block a batch's request 2..N can cache-read from
+    # request 1's write, since the API matches on exact prefix content, not identity.
+    a = classifier._request_params(_doc(), "claude-haiku-4-5-20251001", 1024)
+    b = classifier._request_params(_doc(), "claude-haiku-4-5-20251001", 1024)
+    assert a["system"] == b["system"]

@@ -103,6 +103,27 @@ def fetch_recent_documents(
     return docs
 
 
+def fetch_document(
+    document_number: str,
+    settings: Settings | None = None,
+    logger=None,
+) -> RegulatoryDocument | None:
+    """Fetch a single Federal Register document by its document number. Returns None if
+    not found. Read-only GET against the API's single-document endpoint -- used by the MCP
+    server's get_document_full_text tool so it doesn't have to re-list recent documents to
+    resolve one document_number."""
+    settings = settings or get_settings()
+    logger = logger or setup_logging(settings)
+    url = f"{settings.fr_base_url}/documents/{document_number}.json"
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.get(url, params=[("fields[]", f) for f in _FIELDS])
+        if resp.status_code == 404:
+            log_event(logger, "federal_register", "fetch_document", "not_found", doc=document_number)
+            return None
+        resp.raise_for_status()
+        return _map(resp.json())
+
+
 def fetch_full_text(
     doc: RegulatoryDocument,
     settings: Settings | None = None,

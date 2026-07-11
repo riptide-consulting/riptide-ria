@@ -39,8 +39,8 @@ from claude_agent_sdk import (
     query,
     tool,
 )
-from notion_client import Client
 
+from mcp_servers.notion_tracker.client import search_remediation_tracker
 from ria.logging_setup import log_event, setup_logging
 from ria.models import RegulatoryDocument
 from ria.settings import Settings, get_settings
@@ -95,43 +95,14 @@ def compute_tier(
     return 2, False, False
 
 
-def _title(prop: dict | None) -> str:
-    parts = (prop or {}).get("title") or []
-    return "".join(p.get("plain_text", "") for p in parts).strip() or "(untitled)"
-
-
-def _select(prop: dict | None) -> str:
-    sel = (prop or {}).get("select")
-    return sel.get("name") if sel else "unknown"
-
-
-def _checkbox(prop: dict | None) -> bool:
-    return bool((prop or {}).get("checkbox"))
-
-
-def _search_notion_precedent(settings: Settings, search_term: str, limit: int = 5) -> list[dict]:
-    """Read-only Notion query -- no writes, so it needs no Evaluator-approval gate itself.
-    Runs synchronously; the tool handler wraps this in asyncio.to_thread."""
-    client = Client(auth=settings.notion_api_key)
-    kwargs: dict = {"data_source_id": settings.notion_data_source_id, "page_size": limit}
-    if search_term:
-        kwargs["filter"] = {"property": "Regulation Name", "title": {"contains": search_term}}
-    result = client.data_sources.query(**kwargs)
-
-    records = []
-    for row in result.get("results", []):
-        props = row.get("properties", {})
-        records.append({
-            "name": _title(props.get("Regulation Name")),
-            "risk": _select(props.get("Risk Level")),
-            "status": _select(props.get("Status")),
-            "escalated": _checkbox(props.get("Escalated")),
-        })
-    return records
-
-
 def _make_notion_precedent_tool(settings: Settings):
-    """Build the Evaluator's one live tool, closing over settings for the Notion client."""
+    """Build the Evaluator's one live tool, closing over settings for the Notion client.
+
+    Calls the SAME search_remediation_tracker function the standalone Notion MCP server
+    (mcp_servers/notion_tracker/server.py) wraps -- one implementation of the query, two
+    ways to reach it: this in-process tool for the Evaluator's own reasoning loop, and a
+    real MCP server for any external client.
+    """
 
     @tool(
         "query_notion_precedent",
@@ -142,10 +113,8 @@ def _make_notion_precedent_tool(settings: Settings):
     )
     async def query_notion_precedent(args: dict) -> dict:
         search_term = (args.get("search_term") or "").strip()
-        if not settings.notion_data_source_id:
-            return {"content": [{"type": "text", "text": "No Notion data source configured; skip precedent check."}]}
         try:
-            records = await asyncio.to_thread(_search_notion_precedent, settings, search_term)
+            records = await asyncio.to_thread(search_remediation_tracker, settings, search_term)
         except Exception as exc:  # noqa: BLE001 -- surface any Notion failure to the model, don't crash the run
             return {"content": [{"type": "text", "text": f"Notion query failed: {exc}"}], "is_error": True}
         if not records:

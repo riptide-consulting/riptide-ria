@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "federal-register": {
+      "command": ".venv/Scripts/python.exe",
+      "args": ["-m", "mcp_servers.federal_register.server"]
+    },
+    "notion-tracker": {
+      "command": ".venv/Scripts/python.exe",
+      "args": ["-m", "mcp_servers.notion_tracker.server"]
+    }
+  }
+}

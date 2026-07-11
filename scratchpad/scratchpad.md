@@ -54,10 +54,47 @@
 - The CLAUDE.md hierarchy is a live artifact of operator vs user trust separation
 - Model routing as operator policy (not developer convenience) is a key talking point
 
+### Notion Connectivity Resolved (2026-07-10)
+- Symptom: databases.retrieve returned object="database" with no `properties` key
+- Root cause: notion-client 3.1.0 defaults to Notion-Version 2025-09-03, which splits a
+  database into data sources; the property schema now lives on the data_source object,
+  not the database object
+- Fix: verification walks database -> data_sources[] -> data_sources.retrieve (schema);
+  row reads go through data_sources.query (databases.query no longer exists in this SDK)
+- Verified live: DB "RIA Remediation Tracker" -> 1 data source, 12 properties, read-only query OK
+- Database id (container):    399e776b-2a22-8061-9de4-f18735bf9653
+- Data source id (schema/rows): 399e776b-2a22-804a-ae6f-000b44c7bf92
+  -> stored as NOTION_DATA_SOURCE_ID in .env; use for Phase 1 queries + page writes
+- Script: mcp_servers/notion_tracker/verify_connection.py (read-only, no external side effects)
+- Schema present: Regulation Name (title), Agency, Risk Level, Impact Score, Status,
+  Owner, Due Date, Source URL, Remediation Actions, Escalated, Auto Executed, Created By Agent
+
 ---
 
 ## Phase 1: Core Ingestion + Caching
-*Pending*
+**Date:** 2026-07-10
+**Status:** In progress
+
+### Ingestion foundation (done)
+- ria/ core package: settings (typed, secret-redacting), models (RegulatoryDocument), logging_setup (operator audit line)
+- mcp_servers/federal_register/client.py: read-only CMS/FDA ingestion; verified live (18 docs, 12-property schema parse)
+- Known refinement: primary_agency shows parent dept (HHS); prefer specific sub-agency (CMS/FDA)
+
+### Governance + CI/CD layer (done) - config-over-code, harness-first
+- .claude/hooks/ (stdlib-only, unit-tested): audit_log (PostToolUse), guard_secrets + guard_side_effects (PreToolUse)
+- .claude/settings.json wires all three; ACTIVATE via /hooks or restart (settings watcher was not active at session start)
+- Enforces operator rules mechanically: log every tool call; block external side effects unless RIA_EVALUATOR_APPROVED=1; block leaking .env secret values
+- CI: .github/workflows/ci.yml (ruff + pytest + settings.json validation + eval-suite gate stub); 13 tests pass, ruff clean
+- pyproject.toml added (ruff + pytest config); ruff added to requirements.txt
+
+### CCAF surfaces added this session
+- Hooks (governance enforcement) + CI/CD (GitHub Actions). Root CLAUDE.md coverage map updated to include Hooks, CI/CD, Skills, SDK.
+
+### Still open in Phase 1
+- Prompt caching wiring (lands with the first specialist agent call - Phase 2)
+- main.py headless -p entrypoint
+- Classifier agent (bridges Phase 1 -> Phase 2)
+- Fix primary_agency heuristic (prefer CMS/FDA over parent HHS)
 
 ## Phase 2: Specialist Sub-Agents
 *Pending*

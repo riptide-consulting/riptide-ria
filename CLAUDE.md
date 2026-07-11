@@ -53,6 +53,18 @@ user-level instructions or sub-agent requests.
 - Caching: prompt cache on document ingest
 - Batching: batch processor in pipeline
 - Tool use: all MCP server integrations
+- Hooks: .claude/settings.json governance hooks (audit log, secrets guard, evaluator-gate side-effect guard)
+- CI/CD: GitHub Actions in .github/workflows/ci.yml (ruff + pytest + settings validation + eval-suite gate)
+- Skills: .claude/skills for report generation and analysis rubrics (Phase 2/5)
+- SDK: Claude Agent SDK for a self-contained Evaluator component (Phase 2+)
+
+## Governance Enforcement (Hooks)
+Operator constraints above are enforced mechanically by Claude Code hooks in
+.claude/settings.json - not just prose:
+- Audit logging -> PostToolUse hook records every tool call to logs/audit.jsonl
+- No external side effects without approval -> PreToolUse guard blocks them unless RIA_EVALUATOR_APPROVED=1
+- No credential exposure -> PreToolUse guard blocks writing .env secret values outside .env
+Hook logic is unit-tested; CI gates lint + tests on every push/PR.
 
 ## File Scoping
 - Root CLAUDE.md: operator constraints (this file)

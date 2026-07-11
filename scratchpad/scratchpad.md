@@ -119,7 +119,20 @@ skills, hooks, headless -p) plus thin, legible Python that I write and he review
 - Specialist sub-agents (materiality / process_impact / gap_analyzer) + an analysis skill + the Agent SDK Evaluator
 
 ## Phase 2: Specialist Sub-Agents
-*Pending*
+**Date:** 2026-07-10
+**Status:** In progress
+
+### Step 1 -- full-document cache reuse (done)
+- mcp_servers/federal_register/client.py: fetch_full_text (read-only, capped at 60k chars)
+- ria/caching.py: cached_document_prefix + ask_over_document -- the shared cached-doc read the specialists reuse
+- cache_probe.py: live proof on doc 2026-13918 (CMS notice, 10509 chars -> 3714 tokens):
+    call 1 write=3714 read=0 ; call 2 write=0 read=3714 ; call 3 write=0 read=3714
+  -> cache_read confirmed non-zero. The classifier's 0/0 was a Haiku 4096-token threshold artifact, not a bug.
+- 20 tests pass, ruff clean.
+
+### Step 2 -- specialists (next)
+- materiality / process_impact / gap_analyzer as sequential reads over the shared cached prefix (chaining surface)
+- then an analysis skill + the Evaluator on the Agent SDK
 
 ## Phase 3: MCP Tool Layer
 *Pending*

@@ -103,6 +103,33 @@ def fetch_recent_documents(
     return docs
 
 
+def fetch_full_text(
+    doc: RegulatoryDocument,
+    settings: Settings | None = None,
+    logger=None,
+    max_chars: int = 60000,
+) -> str:
+    """Fetch a document's full text (XML/HTML), capped at max_chars. Returns '' if unavailable.
+
+    Read-only GET. The raw XML/HTML is fine for caching and analysis -- the model reads the
+    regulatory content within it.
+    """
+    settings = settings or get_settings()
+    logger = logger or setup_logging(settings)
+    if not doc.full_text_url:
+        return ""
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.get(doc.full_text_url)
+            resp.raise_for_status()
+            text = resp.text
+    except Exception as exc:
+        log_event(logger, "federal_register", "fetch_full_text", "warn",
+                  doc=doc.document_number, error=str(exc)[:80])
+        return ""
+    return text[:max_chars]
+
+
 def _main() -> None:
     settings = get_settings()
     logger = setup_logging(settings)

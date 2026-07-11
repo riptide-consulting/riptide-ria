@@ -20,9 +20,13 @@ rather than fired. Also found (via a deliberate grep, not by accident) that CONF
 AUTO_EXECUTE_THRESHOLD/ESCALATION_THRESHOLD in .env are completely vestigial -- zero code reads them; the
 real thresholds (same values) come from config/pipeline_config.json's autonomy section instead. Minor,
 non-blocking, not yet cleaned up.
-**Next action:** commit README.md + .env.example. After that the core build is functionally complete --
-remaining open items are Phase 6 (polish, unscoped), the dead .env threshold vars (cosmetic), a real
-branded DOCX/PPTX template, and staging real policy content in Drive whenever it exists.
+**Phase 6 has started.** Andrew picked the real eval suite (over cleanup and scheduling/automation, both
+offered but deferred) as the first Phase 6 item. See "Phase 6" section below for the full writeup -- done
+and live-proven, 4/4 real evals passed. Remaining Phase 6 candidates not yet started: the dead .env
+threshold-var cleanup, scheduling/automation (flagged as a bigger decision -- ongoing autonomous spend/side
+effects, needs explicit buy-in before starting), a real branded DOCX/PPTX template, and staging real policy
+content in Drive.
+**Next action:** commit the eval suite + CI wiring (about to happen).
 **Next action:** commit this Phase 3 work (about to happen), then decide what's next -- Phase 6 polish, or
 just consider the core build done and revisit Drive once real policy content exists. Nothing else is
 blocking; every phase's mechanism is live-proven even where real data is still absent (Drive policy docs,
@@ -524,5 +528,42 @@ get a 7-day token expiry; this doesn't). Message ids: 19f5260e64b53e14, then 19f
   next real unit of work if we pick Phase 3 back up.
 
 ## Phase 6: Optimization + Polish
-*Pending -- not yet scoped. Candidates once Phase 3 finishes: a real branded template, wiring the whole
-chain into one scheduled/cron-friendly run, README/docs polish. Size this once we get here, not before.*
+**Status: started (2026-07-11).** Deliberately left unscoped all session ("size this once we get here") --
+when we got here, gave Andrew a real shortlist grounded in what was actually true of the repo (checked the
+CI eval-suite stub's real content before proposing options, rather than guessing) instead of picking myself.
+He chose: real eval suite, over a cleanup pass and scheduling/automation (both offered, both deferred --
+scheduling specifically flagged as a bigger decision since it means ongoing autonomous spend/side effects,
+not something to start without explicit buy-in).
+
+### Real eval suite (done, live-proven)
+Root CLAUDE.md: "Prompt changes must pass eval suite before merge" -- the CI workflow already had a
+conditional step wired for this since Phase 1 (`if evaluations/test_*.py exists, run it; else skip`), but
+`evaluations/` had never been populated, so the rule was completely unenforced. Distinguished this from
+tests/unit/ deliberately: evals hit the REAL API and test PROMPT QUALITY (does the classifier actually
+discriminate urgent from routine; does materiality actually flag enforcement language; does gap_analyzer
+actually identify and correctly escalate a PHI-shaped gap), not just code logic -- that's a genuinely
+different concern from the offline unit tests, which stay code-only by design.
+- evaluations/fixtures/documents.py: hand-crafted (not real Federal Register) document scenarios, each
+  built to isolate ONE behavior -- an urgent/enforcement-heavy document, a routine/administrative one, and
+  a PHI-adjacent gap scenario.
+- evaluations/test_classifier_evals.py + test_specialist_evals.py: 4 live tests total, kept deliberately
+  small to bound ongoing cost (Haiku + a couple Sonnet calls, no Opus -- compute_tier's logic is already
+  exhaustively unit-tested offline, so a live Evaluator eval wasn't worth the extra cost here).
+- Caught a real design gap before it became a live problem: get_settings() requires ALL of
+  ANTHROPIC_API_KEY/NOTION_API_KEY/NOTION_DATABASE_ID (not lazily per-field), so "just add the Anthropic key
+  as a CI secret" would have been misleading -- the CI eval step now checks for all three before attempting
+  to run, with an honest skip message if any are missing, rather than failing confusingly or documenting a
+  simplification that wasn't true.
+- Confirmed `evaluations/` stays fully separate from the offline suite: bare `pytest -q` still collects
+  exactly 90 (unchanged) since pyproject.toml's testpaths=["tests"] only affects default discovery, not an
+  explicit `pytest evaluations -q` path.
+- Live-proven: ran the real eval suite for real. 4/4 passed in 34.41s -- the enforcement-heavy fixture got
+  high/critical priority, the routine one got low/medium, materiality's reasoning named the enforcement/
+  penalty language, and gap_analyzer both identified the PHI-shaped gap AND never left it at low severity.
+- ruff clean.
+
+### Still open in Phase 6
+- Dead .env cleanup (CONFIDENCE_THRESHOLD/AUTO_EXECUTE_THRESHOLD/ESCALATION_THRESHOLD, unused).
+- Scheduling/automation -- explicitly flagged as needing its own explicit go-ahead, not started.
+- A real branded DOCX/PPTX template.
+- Staging real policy content in Google Drive.

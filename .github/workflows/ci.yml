@@ -30,7 +30,22 @@ jobs:
         run: pytest -q
 
       # Eval-suite gate (operator rule: prompt changes must pass evals before merge).
-      # Wired to activate once evaluations/ is populated in Phase 4.
-      - name: Eval suite (if present)
+      # Phase 6: evaluations/ now has real live-model tests (real API cost, not free like
+      # pytest above). get_settings() requires all three of these (Notion included, even
+      # though these particular evals never touch Notion -- it's a single settings loader,
+      # not lazy per-field). Until all three are added as repo secrets, this skips cleanly
+      # instead of failing every push with no keys available. Contributors can always run
+      # `pytest evaluations -q` locally with their own .env in the meantime.
+      - name: Eval suite (if present + secrets configured)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
         run: |
-          if ls evaluations/test_*.py >/dev/null 2>&1; then pytest evaluations -q; else echo "no evals yet - skipping"; fi
+          if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DATABASE_ID" ]; then
+            echo "ANTHROPIC_API_KEY/NOTION_API_KEY/NOTION_DATABASE_ID secrets not all configured - skipping live eval suite"
+          elif ls evaluations/test_*.py >/dev/null 2>&1; then
+            pytest evaluations -q
+          else
+            echo "no evals yet - skipping"
+          fi

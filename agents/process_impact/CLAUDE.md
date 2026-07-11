@@ -1,11 +1,11 @@
-﻿# Process Impact Mapper - Scoped CLAUDE.md
+# Process Impact Mapper - Scoped CLAUDE.md
 
 ## Role
 Map regulatory requirements to specific internal processes and workflows
 that require modification or review.
 
 ## Model
-claude-sonnet-4-6
+claude-sonnet-5
 
 ## Tools Available
 - google_drive: read internal process documentation

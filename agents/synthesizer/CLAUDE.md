@@ -1,11 +1,11 @@
-﻿# Synthesizer Agent - Scoped CLAUDE.md
+# Synthesizer Agent - Scoped CLAUDE.md
 
 ## Role
 Combine evaluated specialist outputs into a final structured deliverable.
 Produce the executive briefing and remediation plan.
 
 ## Model
-claude-sonnet-4-6
+claude-sonnet-5
 
 ## Tools Available
 - notion_tracker: create remediation records

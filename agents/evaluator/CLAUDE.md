@@ -1,11 +1,11 @@
-﻿# Evaluator Agent - Scoped CLAUDE.md
+# Evaluator Agent - Scoped CLAUDE.md
 
 ## Role
 Score specialist agent outputs and make autonomy tier decisions.
 This is the trust boundary gate. All execution decisions pass through here.
 
 ## Model
-claude-opus-4-6
+claude-opus-4-8
 
 ## Autonomy Decision Framework
 TIER 1 - AUTO EXECUTE: confidence >= 0.90 AND risk_level IN (low, medium)

@@ -1,11 +1,11 @@
-﻿# Materiality Assessor - Scoped CLAUDE.md
+# Materiality Assessor - Scoped CLAUDE.md
 
 ## Role
 Score how materially a regulation impacts healthcare operations.
 Produce a numeric impact score and risk level classification.
 
 ## Model
-claude-sonnet-4-6
+claude-sonnet-5
 
 ## Tools Available
 - federal_register: fetch full regulation text

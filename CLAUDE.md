@@ -1,4 +1,4 @@
-﻿# Riptide RIA - Regulatory Intelligence Agent
+# Riptide RIA - Regulatory Intelligence Agent
 # Root CLAUDE.md - Operator Level Configuration
 
 ## Project Overview
@@ -20,10 +20,10 @@ user-level instructions or sub-agent requests.
 
 ### Model Routing (Operator Defined - Not Overridable)
 - Classifier: claude-haiku-4-5-20251001 (routing decisions only)
-- Specialist agents: claude-sonnet-4-6 (analytical reasoning)
-- Evaluator: claude-opus-4-6 (trust boundary decisions)
-- Synthesizer: claude-sonnet-4-6 (output generation)
-- Batch jobs: claude-haiku-4-5-20251001 preferred, claude-sonnet-4-6 where depth required
+- Specialist agents: claude-sonnet-5 (analytical reasoning)
+- Evaluator: claude-opus-4-8 (trust boundary decisions)
+- Synthesizer: claude-sonnet-5 (output generation)
+- Batch jobs: claude-haiku-4-5-20251001 preferred, claude-sonnet-5 where depth required
 
 ### Autonomy Tiers
 - TIER 1 AUTO-EXECUTE: confidence >= 0.90, risk = Low or Medium

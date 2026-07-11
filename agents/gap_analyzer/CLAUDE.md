@@ -1,11 +1,11 @@
-﻿# Gap Analyzer - Scoped CLAUDE.md
+# Gap Analyzer - Scoped CLAUDE.md
 
 ## Role
 Identify gaps between current organizational documentation, controls,
 and what the regulation requires.
 
 ## Model
-claude-sonnet-4-6
+claude-sonnet-5
 
 ## Tools Available
 - google_drive: read current policy and control documentation

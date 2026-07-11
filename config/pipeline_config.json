@@ -16,7 +16,6 @@
   "autonomy": {
     "tier1_threshold": 0.90,
     "tier2_threshold": 0.75,
-    "tier3_threshold": 0.60,
     "critical_risk_always_escalates": true,
     "enforcement_language_always_escalates": true
   },

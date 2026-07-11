@@ -20,13 +20,11 @@ rather than fired. Also found (via a deliberate grep, not by accident) that CONF
 AUTO_EXECUTE_THRESHOLD/ESCALATION_THRESHOLD in .env are completely vestigial -- zero code reads them; the
 real thresholds (same values) come from config/pipeline_config.json's autonomy section instead. Minor,
 non-blocking, not yet cleaned up.
-**Phase 6 has started.** Andrew picked the real eval suite (over cleanup and scheduling/automation, both
-offered but deferred) as the first Phase 6 item. See "Phase 6" section below for the full writeup -- done
-and live-proven, 4/4 real evals passed. Remaining Phase 6 candidates not yet started: the dead .env
-threshold-var cleanup, scheduling/automation (flagged as a bigger decision -- ongoing autonomous spend/side
-effects, needs explicit buy-in before starting), a real branded DOCX/PPTX template, and staging real policy
-content in Drive.
-**Next action:** commit the eval suite + CI wiring (about to happen).
+**Phase 6 in progress.** Andrew picked the real eval suite first (done, live-proven, 4/4 passed), then a
+cleanup pass (done, see "Phase 6" section for both). Remaining Phase 6 candidates, not started:
+scheduling/automation (flagged as a bigger decision -- ongoing autonomous spend/side effects, needs explicit
+buy-in before starting), a real branded DOCX/PPTX template, and staging real policy content in Drive.
+**Next action:** commit the cleanup pass (about to happen).
 **Next action:** commit this Phase 3 work (about to happen), then decide what's next -- Phase 6 polish, or
 just consider the core build done and revisit Drive once real policy content exists. Nothing else is
 blocking; every phase's mechanism is live-proven even where real data is still absent (Drive policy docs,
@@ -562,8 +560,29 @@ different concern from the offline unit tests, which stay code-only by design.
   penalty language, and gap_analyzer both identified the PHI-shaped gap AND never left it at low severity.
 - ruff clean.
 
+### Cleanup pass (done)
+Verified rather than assumed: grepped for tier1_threshold/tier2_threshold/tier3_threshold usage before
+touching anything, confirming tier3_threshold in config/pipeline_config.json's autonomy section is ALSO
+genuinely unused (only tier1/tier2 are read, by ria/evaluator.py's compute_tier) -- not just the 3 .env vars
+found earlier. Root CLAUDE.md's own tier framework only ever defined two real numeric thresholds (0.90,
+0.75); "tier 3" is the catch-all/escalation case, not itself threshold-bound by a third number -- so
+tier3_threshold never corresponded to anything real in the spec, unlike ria/classifier.py's
+`_CONFIDENCE_FLOOR = 0.60`, which is a genuinely different, working, unit-tested rule (the classifier's own
+"route to all three when uncertain" behavior) that just happens to share the same numeric value.
+Considered wiring classifier.py to read this value from settings.autonomy instead of a hardcoded constant,
+but rejected it: that would mean changing `_postprocess`'s signature (adding a settings param) and touching
+existing passing tests for a purely cosmetic gain, not "quick, low-risk" once actually scoped out. Simpler,
+safer fix: remove the genuinely-dead `tier3_threshold` field, leave classifier.py exactly as it was, and add
+one clarifying comment explaining why there's deliberately no wiring between the two.
+- Removed CONFIDENCE_THRESHOLD/AUTO_EXECUTE_THRESHOLD/ESCALATION_THRESHOLD from .env and .env.example.
+- Removed tier3_threshold from config/pipeline_config.json's autonomy section.
+- Added a comment in ria/classifier.py explaining _CONFIDENCE_FLOOR is deliberately its own constant.
+- Verified via grep afterward that nothing else references any of the four removed items (root CLAUDE.md's
+  prose mention of "AUTO_EXECUTE_THRESHOLD (0.90)" is describing the operator POLICY conceptually, already
+  correctly implemented via tier1_threshold -- not asserting a literal env var must exist; left as-is).
+- Re-verified settings still load correctly and all 90 offline tests + ruff stay clean after the removal.
+
 ### Still open in Phase 6
-- Dead .env cleanup (CONFIDENCE_THRESHOLD/AUTO_EXECUTE_THRESHOLD/ESCALATION_THRESHOLD, unused).
 - Scheduling/automation -- explicitly flagged as needing its own explicit go-ahead, not started.
 - A real branded DOCX/PPTX template.
 - Staging real policy content in Google Drive.

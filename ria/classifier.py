@@ -63,6 +63,9 @@ _ROUTE_TOOL = {
 }
 
 # agents/classifier/CLAUDE.md: confidence below 0.60 defaults to routing all three specialists.
+# Deliberately its own constant, not read from config/pipeline_config.json's autonomy section --
+# this is the classifier's own routing rule, a different concept from the Evaluator's tier
+# framework (ria/evaluator.py's compute_tier), even though they happen to share this value.
 _CONFIDENCE_FLOOR = 0.60
 
 

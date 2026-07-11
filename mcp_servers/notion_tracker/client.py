@@ -26,8 +26,30 @@ def _select(prop: dict | None) -> str:
     return sel.get("name") if sel else "unknown"
 
 
+def _status(prop: dict | None) -> str:
+    """Notion's `status` property type is a distinct type from `select` -- same {"name": ...}
+    shape, but nested under a different key. Reading it with _select() silently returns
+    "unknown" instead of raising, which is exactly what let this go unnoticed until now."""
+    status = (prop or {}).get("status")
+    return status.get("name") if status else "unknown"
+
+
 def _checkbox(prop: dict | None) -> bool:
     return bool((prop or {}).get("checkbox"))
+
+
+def _row_to_record(row: dict) -> dict:
+    """Map one raw Notion row to the shape search_remediation_tracker returns. Pure and
+    testable on its own -- separated out specifically so a wrong-helper-for-the-property-type
+    mistake (like _select() used on the Status property, which is actually type `status`, not
+    `select`) shows up in a unit test instead of only in a live workspace with real data."""
+    props = row.get("properties", {})
+    return {
+        "name": _title(props.get("Regulation Name")),
+        "risk": _select(props.get("Risk Level")),
+        "status": _status(props.get("Status")),
+        "escalated": _checkbox(props.get("Escalated")),
+    }
 
 
 def search_remediation_tracker(
@@ -47,14 +69,4 @@ def search_remediation_tracker(
     if search_term:
         kwargs["filter"] = {"property": "Regulation Name", "title": {"contains": search_term}}
     result = client.data_sources.query(**kwargs)
-
-    records = []
-    for row in result.get("results", []):
-        props = row.get("properties", {})
-        records.append({
-            "name": _title(props.get("Regulation Name")),
-            "risk": _select(props.get("Risk Level")),
-            "status": _select(props.get("Status")),
-            "escalated": _checkbox(props.get("Escalated")),
-        })
-    return records
+    return [_row_to_record(row) for row in result.get("results", [])]

@@ -6,13 +6,14 @@
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
 **Where we are:** Phase 2 done + hardened (real MCP, real batching, varied-batch proof -- all pushed,
-commit a6bbb48). Phase 4 (execution gate) is IN PROGRESS: the write capability is built, tested, and the
-approval gate is live-proven (via the Agency schema fix, same gate mechanism) -- what's NOT yet proven is a
-full live run where a real document naturally hits Tier 1 and a real remediation record gets written.
-**Next action:** decide how to prove the --execute write path live, given every Evaluator run all session has
-landed Tier 3 (see "Phase 4" section for the working theory why, and the options given to Andrew). Then
-either continue Phase 4 or move to Phase 3 (Google Drive -- Andrew is waiting on a go-ahead, not blocked) /
-Phase 5 (Synthesizer + DOCX/PPTX).
+commit a6bbb48). Phase 4 (execution gate) is FUNCTIONALLY COMPLETE: approval gate, property mapping, the
+write itself, and the read-back path are all live-proven against the real Notion workspace (one real page
+written via a clearly-labeled synthetic Tier-1 proof, since no live document has naturally landed Tier 1
+yet). That same live verification also caught and fixed a real bug (Status property read wrong -- see
+"Live write proof" under Phase 4). Not yet pushed -- commit pending as of this entry.
+**Next action:** decide the next phase: Phase 3 (Google Drive OAuth -- Andrew is waiting on a go-ahead, not
+blocked; needs his own Google Cloud Console setup first) / Phase 5 (Synthesizer + DOCX/PPTX, untouched
+territory -- python-docx/pptx unused so far, template files in config/ not yet verified to exist).
 **Runtime fact worth remembering:** the Notion tracker's Agency select field originally only had
 SEC/FINRA/State/Other (a leftover from a different, financial-services Riptide template) -- fixed live via
 mcp_servers/notion_tracker/writer.ensure_agency_options(), now includes the two healthcare agency names,
@@ -343,18 +344,32 @@ progress/Blocked/Done) were already fine, no fix needed there.
 - 12 new offline tests (approval gate on/off, full property-mapping coverage including the due-date-present
   vs absent branches). 71 tests total pass, ruff clean.
 
-### Still open: no live end-to-end write proof yet
-The write MECHANISM is live-proven (the Agency schema fix used the exact same `_require_approval()` gate and
-successfully wrote a real change to Notion). What's NOT yet proven: main.py's full --execute wiring firing
-for a real document that naturally lands Tier 1 -- because no live Evaluator run all session has landed
-anywhere but Tier 3. Working theory, not yet confirmed either way: Tier 1 may be STRUCTURALLY rare right now
-because every specialist prompt this phase discloses "no internal policy access" (Phase 3 dependency), which
-legitimately drags the Evaluator's overall_confidence down below the 0.90 auto-execute floor -- arguably a
-GOOD conservative property of the system (it shouldn't feel confident enough to auto-execute when it knows
-it's missing real internal context), not a flaw. Options given to Andrew: keep trying real documents and
-hope one clears the bar naturally, or do one clearly-labeled SYNTHETIC proof (real Notion write, fabricated
-Tier-1-shaped decision data) to at least prove main.py's wiring end to end. Awaiting his call -- a real Notion
-write is a new, separate action from the schema fix he already approved, so it gets asked for separately.
+### Live write proof (done) -- and a real bug it caught
+Andrew chose the synthetic-proof option: execute_probe.py uses a REAL document's metadata (2026-14073) with
+a FABRICATED, clearly-labeled Tier-1-shaped decision (every text field says "SYNTHETIC TEST DATA"), calling
+create_remediation_record with the exact same argument shape main.py's --execute block uses. Run live with
+RIA_EVALUATOR_APPROVED=1: wrote a real Notion page (39ae776b-2a22-8173-9de1-f04b6c4483b7).
+
+Reading that record back (via the read-only search_remediation_tracker, to confirm the write landed
+correctly) caught a REAL bug: Status came back "unknown" instead of "Not started". Root cause:
+mcp_servers/notion_tracker/client.py's `_select()` helper expects `{"select": {"name": ...}}`, but Notion's
+`status` property type is a DISTINCT type with a different shape, `{"status": {"name": ...}}` -- the query
+code was calling `_select(props.get("Status"))` on a status-type property, which always silently returned
+"unknown" rather than raising. This bug shipped during the MCP hardening pass and went undetected because
+the tracker was EMPTY until this exact test write -- nothing had ever exercised a real row-read before.
+It also means every earlier Evaluator precedent-lookup this session would have shown "status=unknown" for
+any match, though that never surfaced live since there was no data to match against yet.
+
+Fixed: added a proper `_status()` helper, and factored the whole row->record mapping into a new
+`_row_to_record()` pure function specifically so this class of bug (right shape, wrong property type) is
+catchable in an offline unit test instead of only in a live workspace with real data -- added a test using a
+realistic multi-property row that exercises the exact mapping that broke. Re-verified live against the real
+record: status now correctly reads "Not started". 74 tests pass (3 new), ruff clean.
+
+**Phase 4 status: functionally complete.** Approval gate, property mapping, the write itself, and the
+read-back path are all live-proven against a real Notion workspace. What's still true: no NATURALLY occurring
+Tier-1 document has been observed yet (still just the synthetic proof for the full main.py wiring specifically)
+-- not blocking, just worth remembering if a real Tier-1 result would be reassuring later.
 
 ## Phase 5: Synthesizer + Output Layer
 *Pending*

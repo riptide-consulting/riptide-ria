@@ -5,16 +5,18 @@
 ---
 
 ## >> CURRENT STATE (2026-07-11) -- read this first after any compaction
-**Where we are:** Phase 2 is DONE (caching, chaining, skills, SDK Evaluator), PLUS a hardening pass Andrew
-asked for after reviewing it: real MCP servers (not just a suggestively-named folder) and real batching (not
-just a for-loop) for the classifier, both live-proven, plus a 6-document varied-batch stress test with zero
-failures. See "Hardening pass" under Phase 2 for the full writeup.
-**Next action:** commit + push this hardening pass, then decide the next phase: Phase 3 (Google Drive OAuth
--- Andrew is waiting on a go-ahead, not blocked) / Phase 4 (wire execute=True to a real Notion write -- the
-actual execution gate) / Phase 5 (Synthesizer + DOCX/PPTX). Nothing currently WRITES to Notion or acts on an
-Evaluator decision -- execute=True is report-only until Phase 4 exists. Deliberate, not yet closed.
-Also still open: never seen a LIVE Tier 1/2 Evaluator result (every real run lands Tier 3 so far -- explained,
-not alarming, but untested; compute_tier() itself is exhaustively unit-tested for every branch).
+**Where we are:** Phase 2 done + hardened (real MCP, real batching, varied-batch proof -- all pushed,
+commit a6bbb48). Phase 4 (execution gate) is IN PROGRESS: the write capability is built, tested, and the
+approval gate is live-proven (via the Agency schema fix, same gate mechanism) -- what's NOT yet proven is a
+full live run where a real document naturally hits Tier 1 and a real remediation record gets written.
+**Next action:** decide how to prove the --execute write path live, given every Evaluator run all session has
+landed Tier 3 (see "Phase 4" section for the working theory why, and the options given to Andrew). Then
+either continue Phase 4 or move to Phase 3 (Google Drive -- Andrew is waiting on a go-ahead, not blocked) /
+Phase 5 (Synthesizer + DOCX/PPTX).
+**Runtime fact worth remembering:** the Notion tracker's Agency select field originally only had
+SEC/FINRA/State/Other (a leftover from a different, financial-services Riptide template) -- fixed live via
+mcp_servers/notion_tracker/writer.ensure_agency_options(), now includes the two healthcare agency names,
+confirmed idempotent.
 **Repo state:** as of this entry, the hardening-pass files are about to be committed locally; ask Andrew
 before pushing (he's been choosing when). Last GitHub-synced commit: 8d5fb4a. CI (ruff + pytest) runs on push.
 **Runtime facts:** model routing operator-pinned in .env (haiku classify / sonnet specialists / opus evaluator /
@@ -305,7 +307,54 @@ for-loop):
 would follow the same client.py + server.py + real MCP tool pattern)*
 
 ## Phase 4: Evaluator + Execution Gate
-*Pending*
+**Status: in progress (2026-07-11)**
+
+### Schema discovery + fix (done)
+Before writing any create logic, queried the Notion data source's real property types (never assume --
+verify). Found: Agency is a `select` field with options `['SEC', 'FINRA', 'State', 'Other']` -- a leftover
+from a different, financial-services Riptide Consulting template, never customized when this project's
+Notion tracker was set up in Phase 0. None of those fit CMS/FDA. Asked Andrew rather than guessing (three
+options: add real options via API / use "Other" as a workaround / pause and check if the DB is shared with
+other projects) -- he chose to add the real options via API, gated behind approval like any other write.
+Fixed live: `mcp_servers/notion_tracker/writer.ensure_agency_options()` added "Centers for Medicare &
+Medicaid Services" and "Food and Drug Administration" while preserving the four original options; confirmed
+idempotent by re-running it (second call added nothing). Status property's options (Not started/In
+progress/Blocked/Done) were already fine, no fix needed there.
+
+### Write capability (done)
+- mcp_servers/notion_tracker/writer.py -- deliberately a SEPARATE file from client.py (which stays read-only)
+  so the safety property is visible at a glance: anything with a real external side effect lives in writer.py.
+- `_require_approval()`: checks RIA_EVALUATOR_APPROVED, same env var and same concept as
+  .claude/hooks/guard_side_effects.py, but applied at the point of the write itself rather than only at the
+  Claude-Code-tool-call level. Important distinction realized while designing this: guard_side_effects.py only
+  pattern-matches Bash command STRINGS (git push, curl -X POST, mcp__ tool names) -- a plain `python
+  main.py --execute` invocation wouldn't trip that hook at all even though it can trigger a real Notion write
+  internally. Building the gate INTO the write function itself (not just relying on the outer hook) is what
+  actually closes that gap -- fail-safe by construction, not by trusting every caller to check first.
+- `_build_properties()`: pure function mapping doc + decision + specialist_results onto the Notion schema's
+  EXACT verified types (select for Agency/Risk Level, status for Status, rich_text for Owner/Remediation
+  Actions, number/date/url/checkbox for the rest). Risk Level values get `.capitalize()`'d since specialists
+  produce lowercase ("critical") but the Notion select options are capitalized ("Critical").
+- `create_remediation_record()`: the actual `pages.create` call, gated by `_require_approval()`.
+- main.py: `--execute` flag (implies --evaluate implies --analyze). Prints a clear message and logs
+  `execute_gate blocked` when RIA_EVALUATOR_APPROVED isn't set, rather than silently doing nothing or
+  crashing. Per-document: notion_page_id on success, would_execute=True when blocked-but-would-have-fired,
+  execute_error if the Notion call itself fails (doesn't crash the whole run over one document).
+- 12 new offline tests (approval gate on/off, full property-mapping coverage including the due-date-present
+  vs absent branches). 71 tests total pass, ruff clean.
+
+### Still open: no live end-to-end write proof yet
+The write MECHANISM is live-proven (the Agency schema fix used the exact same `_require_approval()` gate and
+successfully wrote a real change to Notion). What's NOT yet proven: main.py's full --execute wiring firing
+for a real document that naturally lands Tier 1 -- because no live Evaluator run all session has landed
+anywhere but Tier 3. Working theory, not yet confirmed either way: Tier 1 may be STRUCTURALLY rare right now
+because every specialist prompt this phase discloses "no internal policy access" (Phase 3 dependency), which
+legitimately drags the Evaluator's overall_confidence down below the 0.90 auto-execute floor -- arguably a
+GOOD conservative property of the system (it shouldn't feel confident enough to auto-execute when it knows
+it's missing real internal context), not a flaw. Options given to Andrew: keep trying real documents and
+hope one clears the bar naturally, or do one clearly-labeled SYNTHETIC proof (real Notion write, fabricated
+Tier-1-shaped decision data) to at least prove main.py's wiring end to end. Awaiting his call -- a real Notion
+write is a new, separate action from the schema fix he already approved, so it gets asked for separately.
 
 ## Phase 5: Synthesizer + Output Layer
 *Pending*

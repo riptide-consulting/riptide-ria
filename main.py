@@ -13,19 +13,24 @@ CCAF "headless vs interactive" surface -- the ``-p`` flag makes it pipe-friendly
     python main.py --batch          # classify via the Anthropic Batches API (cheaper, async)
     python main.py --analyze        # also run routed specialists (Sonnet; costs more)
     python main.py --evaluate       # also run the Evaluator (Opus; implies --analyze)
+    python main.py --execute        # write Tier-1 records to Notion (implies --evaluate);
+                                     # REAL external side effect -- refuses unless
+                                     # RIA_EVALUATOR_APPROVED=1 is set in the environment
 
-Note: an Evaluator decision of execute=True is a RECOMMENDATION only. No auto-write
-capability exists yet (that's Phase 4's execution gate) -- this pipeline never acts on
-a document, only reports what the Evaluator would decide.
+Note: an Evaluator decision of execute=True is only ever a recommendation until --execute
+is passed AND RIA_EVALUATOR_APPROVED=1 is set -- both are required, independently, before
+anything is written to Notion.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from mcp_servers.federal_register.client import fetch_full_text, fetch_recent_documents
+from mcp_servers.notion_tracker.writer import create_remediation_record
 from ria.classifier import classify, classify_batch
 from ria.evaluator import evaluate
 from ria.logging_setup import log_event, setup_logging
@@ -34,7 +39,7 @@ from ria.specialists import run_all_specialists
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Riptide RIA pipeline (ingest + classify [+ analyze [+ evaluate]])")
+    parser = argparse.ArgumentParser(description="Riptide RIA pipeline (ingest + classify + analyze/evaluate/execute)")
     parser.add_argument("-p", "--headless", action="store_true", help="emit JSONL to stdout (pipe-friendly)")
     parser.add_argument("--limit", type=int, default=10, help="max documents to classify")
     parser.add_argument("--batch", action="store_true",
@@ -44,16 +49,26 @@ def main(argv: list[str] | None = None) -> int:
                          help="run routed specialists over full text (Sonnet; off by default -- costs more)")
     parser.add_argument("--evaluate", action="store_true",
                          help="run the Evaluator (Opus, Agent SDK) on analyzed documents -- implies --analyze")
+    parser.add_argument("--execute", action="store_true",
+                         help="write a Notion record for any Tier-1 execute=True document -- implies "
+                              "--evaluate; REAL external side effect, requires RIA_EVALUATOR_APPROVED=1")
     args = parser.parse_args(argv)
+    if args.execute:
+        args.evaluate = True  # execution decisions come from the Evaluator, so it must have run
     if args.evaluate:
         args.analyze = True  # the Evaluator scores specialist output, so it needs --analyze to have run
 
     settings = get_settings()
     logger = setup_logging(settings)
+    approved = os.environ.get("RIA_EVALUATOR_APPROVED", "").strip().lower() in ("1", "true")
+    if args.execute and not approved:
+        print("--execute requested but RIA_EVALUATOR_APPROVED is not set -- no Notion records "
+              "will be written. Showing what WOULD execute instead.\n")
+        log_event(logger, "pipeline", "execute_gate", "blocked", reason="RIA_EVALUATOR_APPROVED not set")
 
     docs = fetch_recent_documents(settings, logger=logger)[: args.limit]
     log_event(logger, "pipeline", "run_start", "begin", documents=len(docs), headless=args.headless,
-              batch=args.batch, analyze=args.analyze, evaluate=args.evaluate)
+              batch=args.batch, analyze=args.analyze, evaluate=args.evaluate, execute=args.execute)
 
     batch_decisions: dict = {}
     if args.batch and docs:
@@ -96,6 +111,22 @@ def main(argv: list[str] | None = None) -> int:
                 entry["evaluation"] = eval_decision
                 entry["cache_write"] += eval_usage.get("cache_creation_input_tokens", 0)
                 entry["cache_read"] += eval_usage.get("cache_read_input_tokens", 0)
+
+                if args.execute and eval_decision["execute"]:
+                    if not approved:
+                        entry["would_execute"] = True
+                    else:
+                        try:
+                            page_id = create_remediation_record(
+                                doc, eval_decision, specialist_results, settings=settings
+                            )
+                            entry["notion_page_id"] = page_id
+                            log_event(logger, "pipeline", "execute", "ok",
+                                      doc=doc.document_number, page_id=page_id)
+                        except Exception as exc:  # noqa: BLE001 -- surface the failure, don't crash the run
+                            entry["execute_error"] = str(exc)[:200]
+                            log_event(logger, "pipeline", "execute", "failed",
+                                      doc=doc.document_number, error=str(exc)[:160])
         results.append(entry)
 
     if args.headless:
@@ -104,8 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_table(results, analyzed=args.analyze)
 
-    log_event(logger, "pipeline", "run_complete", "ok",
-              classified=len(results), analyzed=args.analyze, evaluated=args.evaluate)
+    log_event(logger, "pipeline", "run_complete", "ok", classified=len(results),
+              analyzed=args.analyze, evaluated=args.evaluate, executed=args.execute)
     return 0
 
 
@@ -143,14 +174,20 @@ def _print_table(results: list[dict], analyzed: bool = False) -> None:
     evaluated_docs = [r for r in results if "evaluation" in r]
     if evaluated_docs:
         print()
-        print("Evaluator decisions (execute=True is a recommendation only -- nothing is auto-written):")
+        print("Evaluator decisions:")
         print("-" * 100)
         for r in evaluated_docs:
             e = r["evaluation"]
             confidence = e["scores"].get("overall_confidence", 0.0)
-            print(f"{r['document']} | tier={e['autonomy_tier']}  execute={e['execute']}  "
-                  f"escalate={e['escalate']}  confidence={confidence:.2f}  "
-                  f"enforcement={e['enforcement_detected']}")
+            line = (f"{r['document']} | tier={e['autonomy_tier']}  execute={e['execute']}  "
+                    f"escalate={e['escalate']}  confidence={confidence:.2f}  enforcement={e['enforcement_detected']}")
+            if r.get("notion_page_id"):
+                line += f"  -> WROTE Notion page {r['notion_page_id']}"
+            elif r.get("would_execute"):
+                line += "  -> would execute (blocked: RIA_EVALUATOR_APPROVED not set)"
+            elif r.get("execute_error"):
+                line += f"  -> execute FAILED: {r['execute_error']}"
+            print(line)
 
 
 if __name__ == "__main__":

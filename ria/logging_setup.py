@@ -29,7 +29,13 @@ def setup_logging(settings: Settings | None = None) -> logging.Logger:
     if not _configured:
         try:
             logging.config.fileConfig(str(_LOGGING_CONF), disable_existing_loggers=False)
-        except Exception:
+        except Exception as exc:
+            # This exact failure (a UTF-8 BOM in logging.conf breaking configparser) went
+            # unnoticed for the whole project, since the fallback below still logs to
+            # console -- everything LOOKED like it was working. Print loudly rather than
+            # silently degrade to console-only logging a second time.
+            print(f"WARNING: config/logging.conf failed to load ({exc!r}); "
+                  f"falling back to console-only logging -- logs/ria.log will NOT be written.")
             logging.basicConfig(
                 level=settings.log_level,
                 format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",

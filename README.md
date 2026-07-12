@@ -109,13 +109,11 @@ mcp_servers/                one subpackage per integration (federal_register, no
 agents/<name>/CLAUDE.md     each agent's scoped role, model, output schema, and constraints
 .claude/hooks/              governance enforcement (see Governance)
 .claude/skills/             regulatory-report: human-invoked report generation (/regulatory-report)
-config/                     pipeline_config.json (non-secret settings), logging.conf
+config/                     pipeline_config.json (non-secret settings), logging.conf, branded templates
 tests/unit/                 offline tests, no live API calls -- what CI runs
+docs/ARCHITECTURE.md        distilled architecture decisions -- read this before scratchpad.md
 scratchpad/scratchpad.md    running build log: decisions, what's proven live, what's still open
 ```
-
-**Honestly still scaffolding, not yet built out:** `prompts/`, `evaluations/`, `docs/`, and
-`tests/integration/` are empty directories carried from the initial project scaffold.
 
 ## Testing
 

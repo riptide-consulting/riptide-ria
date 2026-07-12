@@ -165,6 +165,8 @@ tests/unit/                 offline tests, no live API calls -- what CI runs
 evaluations/                live prompt-quality evals, real API cost -- run manually or in CI
                             once the required secrets are configured (see README)
 docs/ARCHITECTURE.md        this file
+docs/AGENTS.md              per-agent technical reference -- what each one does, real mechanics
+docs/PROBLEM-SOLUTION.md    business-facing: the problem, the solution, build/run cost
 docs/DATA-HANDLING.md       client-readable: where document content goes, who has access
 docs/RUNBOOK.md             operator runbook: pre-flight checks, per-engagement configuration
 scratchpad/scratchpad.md    the full chronological build log

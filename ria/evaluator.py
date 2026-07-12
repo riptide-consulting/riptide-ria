@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -244,8 +245,10 @@ def evaluate(
             )
         except Exception as exc:  # noqa: BLE001 -- any SDK/transport failure is a targeted-retry case
             last_err = exc
-            log_event(logger, "evaluator", "evaluate", "retry",
-                      doc=doc.document_number, attempt=attempt, error=str(exc)[:160])
+            log_event(logger, "evaluator", "evaluate", "retry", doc=doc.document_number, attempt=attempt,
+                      error_type=type(exc).__name__, error=str(exc)[:160])
+            if attempt < max_attempts:
+                time.sleep(2 ** (attempt - 1))
             continue
 
         scores = structured.get("scores") or {}

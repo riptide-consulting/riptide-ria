@@ -34,6 +34,7 @@ import sys
 
 from mcp_servers.federal_register.client import fetch_full_text, fetch_recent_documents
 from ria.classifier import classify, classify_batch
+from ria.cost import estimate_cost
 from ria.evaluator import evaluate
 from ria.logging_setup import log_event, setup_logging
 from ria.settings import get_settings
@@ -77,49 +78,75 @@ def main(argv: list[str] | None = None) -> int:
     if args.batch and docs:
         batch_decisions = classify_batch(docs, settings=settings, logger=logger)
 
+    max_spend = settings.pipeline.get("max_spend_usd")
+    total_cost = 0.0
+
     results = []
     for doc in docs:
-        if doc.document_number in batch_decisions:
-            decision, usage = batch_decisions[doc.document_number]
-        else:
-            if args.batch:
-                # No silent gaps: a document missing from the batch (sub-request failure)
-                # still gets classified, just synchronously instead of in the batch.
-                log_event(logger, "pipeline", "batch_fallback", "warn", doc=doc.document_number)
-            decision, usage = classify(doc, settings=settings, logger=logger)
-        entry = {
-            "document": doc.document_number,
-            "title": doc.title,
-            "agency": doc.primary_agency,
-            "document_type": doc.document_type,
-            "publication_date": str(doc.publication_date),
-            "html_url": doc.html_url,
-            **decision,
-            "cache_write": usage.cache_creation_input_tokens,
-            "cache_read": usage.cache_read_input_tokens,
-        }
-        if args.analyze and any(decision["routing"].values()):
-            full_text = fetch_full_text(doc, settings=settings, logger=logger)
-            specialist_results = run_all_specialists(
-                doc, full_text, decision["routing"], settings=settings, logger=logger
-            )
-            entry["specialists"] = {key: v["result"] for key, v in specialist_results.items()}
-            entry["cache_write"] += sum(v["usage"].cache_creation_input_tokens for v in specialist_results.values())
-            entry["cache_read"] += sum(v["usage"].cache_read_input_tokens for v in specialist_results.values())
+        if max_spend and total_cost >= max_spend:
+            log_event(logger, "pipeline", "circuit_breaker", "tripped", total_cost=round(total_cost, 4),
+                      max_spend=max_spend, completed=len(results), remaining=len(docs) - len(results))
+            print(f"\nCost circuit breaker: ${total_cost:.2f} spent >= ${max_spend:.2f} limit "
+                  f"(config/pipeline_config.json's pipeline.max_spend_usd). "
+                  f"Stopping after {len(results)} of {len(docs)} document(s).")
+            break
 
-            if args.evaluate:
-                eval_decision, eval_usage = evaluate(
-                    doc, decision, specialist_results, settings=settings, logger=logger
+        try:
+            if doc.document_number in batch_decisions:
+                decision, usage = batch_decisions[doc.document_number]
+            else:
+                if args.batch:
+                    # No silent gaps: a document missing from the batch (sub-request failure)
+                    # still gets classified, just synchronously instead of in the batch.
+                    log_event(logger, "pipeline", "batch_fallback", "warn", doc=doc.document_number)
+                decision, usage = classify(doc, settings=settings, logger=logger)
+            total_cost += estimate_cost(usage, settings.models["classifier"])
+
+            entry = {
+                "document": doc.document_number,
+                "title": doc.title,
+                "agency": doc.primary_agency,
+                "document_type": doc.document_type,
+                "publication_date": str(doc.publication_date),
+                "html_url": doc.html_url,
+                **decision,
+                "cache_write": usage.cache_creation_input_tokens,
+                "cache_read": usage.cache_read_input_tokens,
+            }
+            if args.analyze and any(decision["routing"].values()):
+                full_text = fetch_full_text(doc, settings=settings, logger=logger)
+                specialist_results = run_all_specialists(
+                    doc, full_text, decision["routing"], settings=settings, logger=logger
                 )
-                entry["evaluation"] = eval_decision
-                entry["cache_write"] += eval_usage.get("cache_creation_input_tokens", 0)
-                entry["cache_read"] += eval_usage.get("cache_read_input_tokens", 0)
+                entry["specialists"] = {key: v["result"] for key, v in specialist_results.items()}
+                entry["cache_write"] += sum(v["usage"].cache_creation_input_tokens for v in specialist_results.values())
+                entry["cache_read"] += sum(v["usage"].cache_read_input_tokens for v in specialist_results.values())
+                total_cost += sum(
+                    estimate_cost(v["usage"], settings.models["specialist"]) for v in specialist_results.values()
+                )
 
-                if args.synthesize:
-                    briefing = synthesize(
-                        doc, decision, specialist_results, eval_decision, settings=settings, logger=logger
+                if args.evaluate:
+                    eval_decision, eval_usage = evaluate(
+                        doc, decision, specialist_results, settings=settings, logger=logger
                     )
-                    entry["synthesis"] = briefing
+                    entry["evaluation"] = eval_decision
+                    entry["cache_write"] += eval_usage.get("cache_creation_input_tokens", 0)
+                    entry["cache_read"] += eval_usage.get("cache_read_input_tokens", 0)
+                    total_cost += estimate_cost(eval_usage, settings.models["evaluator"])
+
+                    if args.synthesize:
+                        briefing = synthesize(
+                            doc, decision, specialist_results, eval_decision, settings=settings, logger=logger
+                        )
+                        entry["synthesis"] = briefing
+        except Exception as exc:  # noqa: BLE001 -- one document's failure shouldn't crash the whole batch
+            log_event(logger, "pipeline", "document_failed", "error", doc=doc.document_number,
+                      error_type=type(exc).__name__, error=str(exc)[:300])
+            print(f"  [FAILED] {doc.document_number}: {type(exc).__name__}: {str(exc)[:200]}")
+            results.append({"document": doc.document_number, "title": doc.title, "failed": True,
+                             "error_type": type(exc).__name__, "error": str(exc)[:300]})
+            continue
+
         results.append(entry)
 
     if args.headless:
@@ -127,20 +154,35 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(json.dumps(r) + "\n")
     else:
         _print_table(results, analyzed=args.analyze)
+        if args.analyze:
+            print(f"\nEstimated cost this run: ${total_cost:.4f}"
+                  + (f" (limit: ${max_spend:.2f})" if max_spend else ""))
 
     log_event(logger, "pipeline", "run_complete", "ok", classified=len(results),
-              analyzed=args.analyze, evaluated=args.evaluate, synthesized=args.synthesize)
+              analyzed=args.analyze, evaluated=args.evaluate, synthesized=args.synthesize,
+              total_cost_usd=round(total_cost, 4))
     return 0
 
 
 def _print_table(results: list[dict], analyzed: bool = False) -> None:
+    failed = [r for r in results if r.get("failed")]
+    ok = [r for r in results if not r.get("failed")]
+
     print()
     print(f"{'Document':14} | {'Priority':8} | {'Conf':4} | {'Route':22} | Title")
     print("-" * 100)
-    for r in results:
+    for r in ok:
         route = "+".join(k[:4] for k, v in r["routing"].items() if v) or "-"
         print(f"{r['document']:14} | {r['priority']:8} | {r['confidence']:.2f} | {route:22} | {r['title'][:44]}")
 
+    if failed:
+        print()
+        print(f"Failed ({len(failed)}):")
+        print("-" * 100)
+        for r in failed:
+            print(f"{r['document']:14} | {r['error_type']}: {r['error'][:80]}")
+
+    results = ok  # everything below assumes a completed entry's shape
     written = sum(r["cache_write"] for r in results)
     read = sum(r["cache_read"] for r in results)
     print()

@@ -19,6 +19,7 @@ plainly whether Drive found anything relevant, so specialists never have to gues
 from __future__ import annotations
 
 import json
+import time
 
 from ria.caching import ask_over_document, cached_document_prefix, fetch_drive_context
 from ria.logging_setup import log_event, setup_logging
@@ -192,14 +193,24 @@ def run_specialist(
             f"{question}\n\nYour previous reply was not valid JSON ({last_err}). "
             "Reply again with ONLY the JSON object, no other text."
         )
-        text, usage = ask_over_document(
-            prefix_blocks, prompt, settings=settings, client=client,
-            max_tokens=settings.max_tokens["specialist"],
-        )
+        try:
+            text, usage = ask_over_document(
+                prefix_blocks, prompt, settings=settings, client=client,
+                max_tokens=settings.max_tokens["specialist"],
+            )
+        except Exception as exc:  # noqa: BLE001 -- transient API/network failure, retry with backoff
+            last_err = exc
+            log_event(logger, key, "analyze", "retry", doc=doc.document_number, attempt=attempt,
+                      error_type=type(exc).__name__, error=str(exc)[:200])
+            if attempt < max_attempts:
+                time.sleep(2 ** (attempt - 1))
+            continue
         result = _parse_json(text)
         if result is None:
             last_err = ValueError("response was not valid JSON")
             log_event(logger, key, "analyze", "retry", doc=doc.document_number, attempt=attempt)
+            if attempt < max_attempts:
+                time.sleep(2 ** (attempt - 1))
             continue
 
         result["document_id"] = doc.document_number
@@ -234,6 +245,13 @@ def run_all_specialists(
     The first call writes the document into the cache; every specialist after it reads the
     same prefix (cache_read > 0) instead of re-paying for the full document -- the "chaining"
     and "caching" CCAF surfaces working together.
+
+    One specialist exhausting its own retries doesn't stop the others -- each is independent
+    over the same cached prefix, so there's no reason gap_analyzer shouldn't still run just
+    because materiality failed. A missing key in the returned dict IS the failure signal
+    (root CLAUDE.md: partial results pass downstream with confidence flagged, not a full
+    re-run); every downstream reader already handles a routing-partial dict via .get()/
+    dict comprehension, so a specialist-failure-partial dict needs no special-casing there.
     """
     settings = settings or get_settings()
     logger = logger or setup_logging(settings)
@@ -244,6 +262,11 @@ def run_all_specialists(
     for key in _SPECIALISTS:
         if not routing.get(key):
             continue
-        result, usage = run_specialist(key, prefix, doc, settings=settings, client=client, logger=logger)
+        try:
+            result, usage = run_specialist(key, prefix, doc, settings=settings, client=client, logger=logger)
+        except Exception as exc:  # noqa: BLE001 -- one specialist's exhausted retries shouldn't block the rest
+            log_event(logger, key, "analyze", "unrecoverable", doc=doc.document_number,
+                      error_type=type(exc).__name__, error=str(exc)[:300])
+            continue
         results[key] = {"result": result, "usage": usage}
     return results

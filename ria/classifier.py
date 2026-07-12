@@ -135,12 +135,22 @@ def classify(
 
     last_err: Exception | None = None
     for attempt in range(1, max_attempts + 1):
-        resp = client.messages.create(**params)
+        try:
+            resp = client.messages.create(**params)
+        except Exception as exc:  # noqa: BLE001 -- transient API/network failure, retry with backoff
+            last_err = exc
+            log_event(logger, "classifier", "route", "retry", doc=doc.document_number, attempt=attempt,
+                      error_type=type(exc).__name__, error=str(exc)[:200])
+            if attempt < max_attempts:
+                time.sleep(2 ** (attempt - 1))
+            continue
         raw = _extract(resp)
         if raw is None:  # schema/shape failure -> targeted retry (root CLAUDE.md)
             last_err = ValueError("no route tool_use block in response")
             log_event(logger, "classifier", "route", "retry",
                       doc=doc.document_number, attempt=attempt, error=str(last_err))
+            if attempt < max_attempts:
+                time.sleep(2 ** (attempt - 1))
             continue
         decision = _postprocess(raw, doc)
         usage = resp.usage

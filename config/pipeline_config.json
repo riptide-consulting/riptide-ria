@@ -3,7 +3,8 @@
     "max_retries": 3,
     "cache_ttl_seconds": 3600,
     "batch_size": 10,
-    "headless_mode": false
+    "headless_mode": false,
+    "max_spend_usd": 10.0
   },
   "federal_register": {
     "agencies": [

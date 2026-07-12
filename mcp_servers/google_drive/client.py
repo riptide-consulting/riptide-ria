@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 
+from docx import Document
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
@@ -29,6 +30,14 @@ _EXPORT_MIME_TYPES = {
     "application/vnd.google-apps.document": "text/plain",
     "application/vnd.google-apps.spreadsheet": "text/csv",
     "application/vnd.google-apps.presentation": "text/plain",
+}
+
+# Uploaded (non-Google-native) formats that are real binary containers, not plain text --
+# decoding these as UTF-8 produces garbage (the zip/xml bytes rendered as mojibake), not an
+# error, so this was silently corrupting specialist context until caught against a real file.
+_BINARY_PARSERS = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        lambda raw: "\n".join(p.text for p in Document(io.BytesIO(raw)).paragraphs if p.text.strip()),
 }
 
 
@@ -65,4 +74,8 @@ def fetch_document_text(
     done = False
     while not done:
         _, done = downloader.next_chunk()
-    return buffer.getvalue().decode("utf-8", errors="ignore")[:max_chars]
+    raw = buffer.getvalue()
+
+    parser = _BINARY_PARSERS.get(mime_type)
+    text = parser(raw) if parser else raw.decode("utf-8", errors="ignore")
+    return text[:max_chars]

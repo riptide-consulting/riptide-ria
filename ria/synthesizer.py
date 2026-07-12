@@ -25,7 +25,7 @@ from pathlib import Path
 import anthropic
 from docx import Document
 from pptx import Presentation
-from pptx.util import Inches
+from pptx.util import Inches, Pt
 
 from mcp_servers.gmail.client import is_configured as gmail_configured
 from mcp_servers.gmail.client import send_escalation_email
@@ -33,6 +33,11 @@ from mcp_servers.notion_tracker.writer import create_remediation_record
 from ria.logging_setup import log_event, setup_logging
 from ria.models import RegulatoryDocument
 from ria.settings import PROJECT_ROOT, Settings, get_settings
+
+_DISCLAIMER = (
+    "AI-assisted analysis. Not legal advice. Requires human review before any compliance "
+    "action is taken."
+)
 
 _BRIEFING_TOOL = {
     "name": "submit_briefing",
@@ -130,6 +135,9 @@ def _write_docx(doc: RegulatoryDocument, briefing: dict, materiality: dict,
     d.add_heading(doc.title, level=1)
     d.add_paragraph(f"{doc.primary_agency}  |  {doc.document_type}  |  "
                      f"Published {doc.publication_date}  |  {doc.html_url}")
+    disclaimer_para = d.add_paragraph()
+    disclaimer_run = disclaimer_para.add_run(_DISCLAIMER)
+    disclaimer_run.italic = True
 
     d.add_heading("Executive Summary", level=2)
     d.add_paragraph(briefing["executive_summary"])
@@ -170,6 +178,12 @@ def _write_pptx(doc: RegulatoryDocument, briefing: dict, materiality: dict,
     title_slide = prs.slides.add_slide(prs.slide_layouts[0])
     title_slide.shapes.title.text = doc.title[:90]
     title_slide.placeholders[1].text = f"{doc.primary_agency}  |  {doc.publication_date}"
+    disclaimer_box = title_slide.shapes.add_textbox(Inches(0.5), prs.slide_height - Inches(0.5),
+                                                      prs.slide_width - Inches(1), Inches(0.4))
+    disclaimer_run = disclaimer_box.text_frame.paragraphs[0].add_run()
+    disclaimer_run.text = _DISCLAIMER
+    disclaimer_run.font.size = Pt(10)
+    disclaimer_run.font.italic = True
 
     summary_slide = prs.slides.add_slide(prs.slide_layouts[1])
     summary_slide.shapes.title.text = "Executive Summary"

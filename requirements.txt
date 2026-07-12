@@ -1,8 +1,6 @@
 ﻿anthropic==0.116.0
 python-dotenv==1.2.2
 httpx==0.28.1
-fastapi==0.139.0
-uvicorn==0.51.0
 notion-client==3.1.0
 claude-agent-sdk==0.2.116
 mcp==1.28.1
@@ -14,4 +12,5 @@ python-docx
 python-pptx
 pytest
 pytest-asyncio
+pytest-cov
 ruff

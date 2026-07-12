@@ -110,3 +110,39 @@ def test_write_pptx_handles_empty_remediation_plan(tmp_path):
     empty_briefing = {**_BRIEFING, "remediation_plan": []}
     path = synthesizer._write_pptx(_doc(), empty_briefing, _MATERIALITY, _EVALUATOR_DECISION, settings)
     assert path.exists()  # should not crash on an empty plan
+
+
+def test_scrub_removes_cfr_and_usc_citations():
+    dirty = "This is required under 21 CFR Part 207 and 21 U.S.C. 333(f)."
+    cleaned = synthesizer._scrub_executive_summary(dirty)
+    assert "CFR" not in cleaned
+    assert "U.S.C." not in cleaned
+    assert "applicable federal regulations" in cleaned
+
+
+def test_scrub_replaces_jargon_terms():
+    dirty = "The FDA considers our product misbranded, notwithstanding prior corrective action."
+    cleaned = synthesizer._scrub_executive_summary(dirty)
+    assert "misbranded" not in cleaned.lower()
+    assert "notwithstanding" not in cleaned.lower()
+    assert "mislabeled" in cleaned.lower()
+
+
+def test_scrub_leaves_clean_text_unchanged():
+    clean = "We need to fix our sterility controls within two weeks."
+    assert synthesizer._scrub_executive_summary(clean) == clean
+
+
+def test_scrub_logs_only_when_something_actually_changed():
+    calls = []
+
+    class _Logger:
+        def info(self, msg):
+            calls.append(msg)
+
+    synthesizer._scrub_executive_summary("Nothing to fix here.", _Logger(), "DOC-1")
+    assert calls == []
+
+    synthesizer._scrub_executive_summary("Governed by 21 CFR Part 207.", _Logger(), "DOC-1")
+    assert len(calls) == 1
+    assert "jargon_scrub" in calls[0]

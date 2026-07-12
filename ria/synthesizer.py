@@ -19,6 +19,7 @@ blocking on a design asset. Dropping a real template at that path later needs no
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -38,6 +39,42 @@ _DISCLAIMER = (
     "AI-assisted analysis. Not legal advice. Requires human review before any compliance "
     "action is taken."
 )
+
+# agents/synthesizer/CLAUDE.md: executive_summary must be "plain language, no jargon, no
+# citations to CFR sections". evaluations/test_synthesizer_evals.py proved live this holds
+# MOST of the time, not always -- so this doesn't trust the model's compliance, it enforces
+# it afterward, the same proposes-then-code-disposes pattern as ria/specialists.py's
+# _postprocess_materiality/_postprocess_gap_analyzer. Citation replacement runs before jargon
+# substitution so a leading "pursuant to 21 U.S.C. 333(f)" reads as "under applicable federal
+# regulations", not "pursuant to applicable federal regulations".
+_CITATION_PATTERN = re.compile(
+    r"\d+\s*(?:C\.?F\.?R\.?|U\.?S\.?C\.?)\s*(?:Part\s*\d+|§+\s*[\w.()-]+|[\w.()-]+)?",
+    re.IGNORECASE,
+)
+_JARGON_SUBSTITUTIONS = {
+    "notwithstanding": "despite",
+    "pursuant to": "under",
+    "de novo": "fresh",
+    "promulgated": "issued",
+    "misbranded": "mislabeled",
+    "adjudicatory": "review",
+    "aforementioned": "previously mentioned",
+    "herein": "in this document",
+    "heretofore": "until now",
+}
+
+
+def _scrub_executive_summary(summary: str, logger=None, doc_id: str = "") -> str:
+    """Deterministically enforce the no-citations/no-jargon constraint. Returns the cleaned
+    text; logs only when something actually changed, so a clean summary (the common case)
+    costs nothing extra and leaves no log noise."""
+    cleaned = _CITATION_PATTERN.sub("applicable federal regulations", summary)
+    for term, replacement in _JARGON_SUBSTITUTIONS.items():
+        cleaned = re.sub(re.escape(term), replacement, cleaned, flags=re.IGNORECASE)
+    if cleaned != summary and logger is not None:
+        log_event(logger, "synthesizer", "jargon_scrub", "fired", doc=doc_id,
+                   before_length=len(summary), after_length=len(cleaned))
+    return cleaned
 
 _BRIEFING_TOOL = {
     "name": "submit_briefing",
@@ -91,7 +128,10 @@ def _build_prompt(doc: RegulatoryDocument, classifier_decision: dict, specialist
 def _generate_briefing(
     doc: RegulatoryDocument, classifier_decision: dict, specialist_results: dict,
     evaluator_decision: dict, settings: Settings, client: anthropic.Anthropic, logger,
-) -> dict:
+):
+    """Returns (briefing, usage) -- usage is returned rather than only logged so callers can
+    account for this call's real cost (main.py's spend circuit breaker; evaluations/'s cost
+    summary), the same pattern classify()/run_specialist()/evaluate() already follow."""
     model = settings.models["synthesizer"]
     resp = client.messages.create(
         model=model,
@@ -105,7 +145,7 @@ def _generate_briefing(
     log_event(logger, "synthesizer", "briefing", "ok", doc=doc.document_number,
               actions=len(briefing["remediation_plan"]),
               cache_write=resp.usage.cache_creation_input_tokens, cache_read=resp.usage.cache_read_input_tokens)
-    return briefing
+    return briefing, resp.usage
 
 
 def _output_path(settings: Settings, kind: str, doc: RegulatoryDocument) -> Path:
@@ -225,17 +265,21 @@ def synthesize(
     settings: Settings | None = None,
     client: anthropic.Anthropic | None = None,
     logger=None,
-) -> dict:
+):
     """Produce the executive briefing + DOCX/PPTX (always), and perform the Notion write /
     escalation email the Evaluator's decision authorizes (both gated by RIA_EVALUATOR_APPROVED,
-    independent of each other). Returns the schema from agents/synthesizer/CLAUDE.md."""
+    independent of each other). Returns (result, usage) -- result matches the schema from
+    agents/synthesizer/CLAUDE.md; usage is the briefing call's, for cost accounting."""
     settings = settings or get_settings()
     logger = logger or setup_logging(settings)
     client = client or anthropic.Anthropic(api_key=settings.anthropic_api_key)
     materiality = (specialist_results.get("materiality") or {}).get("result", {})
 
-    briefing = _generate_briefing(
+    briefing, usage = _generate_briefing(
         doc, classifier_decision, specialist_results, evaluator_decision, settings, client, logger
+    )
+    briefing["executive_summary"] = _scrub_executive_summary(
+        briefing["executive_summary"], logger, doc.document_number
     )
     docx_path = _write_docx(doc, briefing, materiality, evaluator_decision, settings)
     pptx_path = _write_pptx(doc, briefing, materiality, evaluator_decision, settings)
@@ -272,7 +316,7 @@ def synthesize(
                 log_event(logger, "synthesizer", "escalation_email", "note",
                           doc=doc.document_number, reason="Phase 3 Google OAuth setup not complete yet")
 
-    return {
+    result = {
         "document_id": doc.document_number,
         "regulation_name": doc.title,
         "agency": doc.primary_agency,
@@ -285,3 +329,4 @@ def synthesize(
         "output_files": [str(docx_path), str(pptx_path)],
         "autonomy_tier": evaluator_decision.get("autonomy_tier"),
     }
+    return result, usage

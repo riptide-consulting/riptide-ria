@@ -7,7 +7,7 @@ Anthropic console. Pricing itself lives in ria/cost.py, shared with main.py's sp
 breaker so there's one place to update when prices change.
 """
 
-from ria.cost import estimate_cost
+from ria.cost import estimate_cost, usage_tokens
 
 _calls: list[tuple[str, str, object]] = []
 
@@ -25,8 +25,6 @@ def pytest_terminal_summary(terminalreporter):
     for label, model, usage in _calls:
         cost = estimate_cost(usage, model)
         total += cost
-        input_tok = usage.input_tokens + usage.cache_creation_input_tokens
-        terminalreporter.write_line(
-            f"  {label}: {model} -- {input_tok} in / {usage.output_tokens} out -- ${cost:.4f}"
-        )
+        input_tok, output_tok = usage_tokens(usage)
+        terminalreporter.write_line(f"  {label}: {model} -- {input_tok} in / {output_tok} out -- ${cost:.4f}")
     terminalreporter.write_line(f"  TOTAL (estimated): ${total:.4f}")

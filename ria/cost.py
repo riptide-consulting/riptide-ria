@@ -24,21 +24,28 @@ def price_for(model: str) -> tuple[float, float] | None:
     return None
 
 
-def estimate_cost(usage, model: str) -> float:
-    """Estimate $ cost from a usage object. Accepts either an anthropic Usage object
-    (input_tokens/output_tokens/cache_creation_input_tokens as attributes) or a plain
-    dict with the same keys (the shape the Claude Agent SDK's ResultMessage.usage uses).
-    Unpriced models return 0.0 rather than raising, so a missing price entry degrades
-    the circuit breaker to a no-op for that call instead of crashing the run.
+def usage_tokens(usage) -> tuple[int, int]:
+    """(input_tokens + cache_creation_input_tokens, output_tokens) from a usage object.
+    Accepts either an anthropic Usage object (attributes) or a plain dict with the same
+    keys (the shape the Claude Agent SDK's ResultMessage.usage uses) -- classify()/
+    run_specialist() return the former, evaluate() the latter, and callers that display or
+    price a usage value regardless of which stage produced it need both to work.
     """
     def get(key: str) -> int:
         if isinstance(usage, dict):
             return usage.get(key) or 0
         return getattr(usage, key, None) or 0
 
+    return get("input_tokens") + get("cache_creation_input_tokens"), get("output_tokens")
+
+
+def estimate_cost(usage, model: str) -> float:
+    """Estimate $ cost from a usage object (see usage_tokens for the accepted shapes).
+    Unpriced models return 0.0 rather than raising, so a missing price entry degrades
+    the circuit breaker to a no-op for that call instead of crashing the run.
+    """
     price = price_for(model)
     if price is None:
         return 0.0
-    input_tok = get("input_tokens") + get("cache_creation_input_tokens")
-    output_tok = get("output_tokens")
+    input_tok, output_tok = usage_tokens(usage)
     return (input_tok * price[0] + output_tok * price[1]) / 1_000_000

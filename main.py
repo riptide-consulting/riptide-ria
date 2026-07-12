@@ -135,10 +135,11 @@ def main(argv: list[str] | None = None) -> int:
                     total_cost += estimate_cost(eval_usage, settings.models["evaluator"])
 
                     if args.synthesize:
-                        briefing = synthesize(
+                        briefing, briefing_usage = synthesize(
                             doc, decision, specialist_results, eval_decision, settings=settings, logger=logger
                         )
                         entry["synthesis"] = briefing
+                        total_cost += estimate_cost(briefing_usage, settings.models["synthesizer"])
         except Exception as exc:  # noqa: BLE001 -- one document's failure shouldn't crash the whole batch
             log_event(logger, "pipeline", "document_failed", "error", doc=doc.document_number,
                       error_type=type(exc).__name__, error=str(exc)[:300])

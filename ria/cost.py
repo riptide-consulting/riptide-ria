@@ -39,13 +39,36 @@ def usage_tokens(usage) -> tuple[int, int]:
     return get("input_tokens") + get("cache_creation_input_tokens"), get("output_tokens")
 
 
+# Prompt-cache billing multipliers relative to base input price (this pipeline uses the
+# default 5-minute TTL everywhere; 1-hour cache writes bill at 2.0x and would need their
+# own entry here if ever adopted).
+_CACHE_WRITE_MULTIPLIER = 1.25
+_CACHE_READ_MULTIPLIER = 0.10
+
+
 def estimate_cost(usage, model: str) -> float:
     """Estimate $ cost from a usage object (see usage_tokens for the accepted shapes).
     Unpriced models return 0.0 rather than raising, so a missing price entry degrades
     the circuit breaker to a no-op for that call instead of crashing the run.
+
+    Cache-aware: cache writes bill at 1.25x base input and cache reads at 0.1x. The
+    previous version priced writes at 1.0x and reads at 0.0x, so estimates ran low in
+    both directions -- small per call, but the circuit breaker deserves real numbers.
     """
     price = price_for(model)
     if price is None:
         return 0.0
-    input_tok, output_tok = usage_tokens(usage)
-    return (input_tok * price[0] + output_tok * price[1]) / 1_000_000
+
+    def get(key: str) -> int:
+        if isinstance(usage, dict):
+            return usage.get(key) or 0
+        return getattr(usage, key, None) or 0
+
+    input_price, output_price = price
+    dollars = (
+        get("input_tokens") * input_price
+        + get("cache_creation_input_tokens") * input_price * _CACHE_WRITE_MULTIPLIER
+        + get("cache_read_input_tokens") * input_price * _CACHE_READ_MULTIPLIER
+        + get("output_tokens") * output_price
+    )
+    return dollars / 1_000_000

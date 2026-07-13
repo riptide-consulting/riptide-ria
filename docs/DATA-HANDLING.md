@@ -1,4 +1,4 @@
-# Riptide RIA — Data Handling
+# Riptide RIA: Data Handling
 
 Written for a prospective or engaged client to read directly. Describes where document
 content actually goes when this pipeline runs, in plain terms.
@@ -14,15 +14,15 @@ real client's data.
 
 1. **The regulatory filing itself** (from the Federal Register, or a client-provided document)
    is sent to Anthropic's API for classification and analysis. This is the same as any other
-   use of Claude's API — see Anthropic's own data usage policy for exactly what Anthropic
+   use of Claude's API; see Anthropic's own data usage policy for exactly what Anthropic
    does and doesn't do with API traffic (as a baseline: Anthropic does not train its models on
    API customer data by default). Riptide does not control Anthropic's retention policy; we
    can share the current terms on request before any engagement starts.
 2. **Any internal policy or procedure document a client provides** for gap analysis is
    likewise sent to Anthropic's API as part of that analysis, and is stored in Riptide's own
-   Google Drive (today, Riptide's own account — see "Single-tenant today" below).
-3. **The output** — a risk/gap analysis, a remediation plan, and a compliance briefing
-   (DOCX/PPTX) — is generated and, where the analysis warrants it, written to Riptide's
+   Google Drive (today, Riptide's own account; see "Single-tenant today" below).
+3. **The output**: a risk/gap analysis, a remediation plan, and a compliance briefing
+   (DOCX/PPTX) is generated and, where the analysis warrants it, written to Riptide's
    internal Notion tracker and can trigger an internal escalation email. Neither of those two
    actions ever happens automatically without an operator explicitly approving it
    (`RIA_EVALUATOR_APPROVED`, see `docs/ARCHITECTURE.md`).
@@ -30,14 +30,14 @@ real client's data.
 ## Who has access
 
 Today: whoever has access to Riptide's own Anthropic account, Notion workspace, and Google
-Drive/Gmail — the same access boundary as any other internal Riptide tool. No client login,
+Drive/Gmail; the same access boundary as any other internal Riptide tool. No client login,
 no client-facing dashboard; a client receives the generated briefing as a deliverable, not
 system access.
 
 ## Single-tenant today
 
 There is currently one shared Notion tracker and one shared Drive account for the whole
-system — not split per client. That's a deliberate scope decision for a demo with no real
+system, not split per client. That's a deliberate scope decision for a demo with no real
 client data in it (see `docs/ARCHITECTURE.md`'s "Single-tenant by design" section for the
 full reasoning and what production would require). **Before any real client engagement**,
 Riptide would stand up a client-specific tracker and Drive scope so one client's data is
@@ -48,3 +48,22 @@ never reachable while working on another's.
 Every DOCX and PPTX this pipeline produces carries this notice: *"AI-assisted analysis. Not
 legal advice. Requires human review before any compliance action is taken."* The analysis is
 a starting point for a human reviewer, not a substitute for one.
+
+## What an enterprise deployment changes
+
+The demo posture above is single-tenant and uses consumer-grade integrations because that
+is what a capability demonstration needs. A client engagement changes four things, none of
+which touch the governance design:
+
+1. **Tenancy**: one deployment per client (their tracker, their document source, their
+   credentials), instead of the shared demo Notion/Drive.
+2. **Integrations**: Notion/Gmail/Drive swap for the client's tracker, mail, and document
+   systems behind the same MCP-server interfaces (see `docs/ENTERPRISE-FAQ.md`).
+3. **Model access path**: direct Anthropic API, or Claude via AWS Bedrock / Google Vertex
+   AI inside the client's cloud tenancy, chosen with their security team. Data-handling
+   arrangements (retention, zero-data-retention, HIPAA-ready organizations) are set at
+   this layer with the relevant account team.
+4. **Log destination**: `logs/*.jsonl` and `logs/ria.log` ship to the client's SIEM with
+   their retention and access policies.
+
+PHI remains out of scope in this use case either way; see the FAQ's first question.

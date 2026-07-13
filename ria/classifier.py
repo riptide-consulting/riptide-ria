@@ -7,7 +7,7 @@ the same document reuse it. Behavior mirrors agents/classifier/CLAUDE.md.
 Model routing is operator policy (settings.models['classifier']) and must not be upgraded
 here (root CLAUDE.md). Schema-validation failures trigger a targeted retry, up to 3 attempts.
 
-``classify_batch`` is the real "batching" CCAF surface (root CLAUDE.md: "Batch jobs: haiku
+``classify_batch`` is the real "batching" CCA-F surface (root CLAUDE.md: "Batch jobs: haiku
 preferred"): every document's classification is independent of every other, so a whole
 ingest window can go through the Anthropic Batches API in one submission instead of N
 synchronous calls -- async, ~50% cheaper. Specialists/Evaluator stay per-document: each
@@ -22,6 +22,7 @@ import anthropic
 
 from ria.logging_setup import log_event, setup_logging
 from ria.models import RegulatoryDocument
+from ria.retry import is_retryable
 from ria.settings import Settings, get_settings
 
 _SYSTEM = """You are the Classifier for a healthcare regulatory intelligence pipeline.
@@ -97,7 +98,12 @@ def _request_params(doc: RegulatoryDocument, model: str, max_tokens: int) -> dic
     rubric and the document block carry cache_control, same as the original single-call
     design -- the rubric is identical across every document in a batch (request 2..N can
     reuse request 1's write); the document block is per-document so it won't be reread
-    across requests, same as it already wasn't in the synchronous path."""
+    across requests, same as it already wasn't in the synchronous path.
+
+    Known tradeoff on the per-document breakpoint: writing it costs the 1.25x cache-write
+    premium on the document tokens, and the only thing that ever reads it back is a retry
+    of this same document within the TTL (rare). Expected value is slightly negative; it's
+    kept because the retry case is exactly when the pipeline is already paying twice."""
     return {
         "model": model,
         "max_tokens": max_tokens,
@@ -149,13 +155,14 @@ def classify(
     for attempt in range(1, max_attempts + 1):
         try:
             resp = client.messages.create(**params)
-        except Exception as exc:  # noqa: BLE001 -- transient API/network failure, retry with backoff
+        except Exception as exc:  # noqa: BLE001 -- classified below; only transient failures retry
             last_err = exc
             log_event(logger, "classifier", "route", "retry", doc=doc.document_number, attempt=attempt,
                       error_type=type(exc).__name__, error=str(exc)[:200])
-            if attempt < max_attempts:
+            if attempt < max_attempts and is_retryable(exc):
                 time.sleep(2 ** (attempt - 1))
-            continue
+                continue
+            break  # fatal (4xx auth/request error) or attempts exhausted -- fail now
         raw = _extract(resp)
         if raw is None:  # schema/shape failure -> targeted retry (root CLAUDE.md)
             last_err = ValueError("no route tool_use block in response")
@@ -217,7 +224,12 @@ def classify_batch(
     while batch.processing_status != "ended":
         if time.monotonic() > deadline:
             log_event(logger, "classifier", "batch_poll", "timeout", batch_id=batch.id, timeout=timeout)
-            raise TimeoutError(f"batch {batch.id} did not finish within {timeout}s")
+            raise TimeoutError(
+                f"batch {batch.id} did not finish within {timeout}s. The batch is still running "
+                f"server-side and is NOT lost -- results stay retrievable for 29 days via "
+                f"client.messages.batches.results('{batch.id}'), or re-run without --batch to "
+                f"classify synchronously."
+            )
         time.sleep(poll_interval)
         batch = client.messages.batches.retrieve(batch.id)
         counts = batch.request_counts

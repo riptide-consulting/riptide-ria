@@ -221,6 +221,11 @@ __marimo__/
 logs/*.jsonl
 outputs/
 
-# RIA Google OAuth credentials + tokens (Phase 3) -- never committed, same as .env
+# RIA Google OAuth credentials + tokens (Phase 3) -- never committed, same as .env.
+# The *client_secret* pattern matters: Google Cloud Console's default download name is
+# client_secret_<id>.apps.googleusercontent.com.json, which matched NEITHER pattern below
+# before -- one careless `git add config/` away from committing an OAuth client secret.
 config/google_*.json
 config/*_token.json
+config/*client_secret*.json
+config/*credentials*.json

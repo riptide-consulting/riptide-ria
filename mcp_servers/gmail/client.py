@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 from email.mime.text import MIMEText
 
 from googleapiclient.discovery import build
@@ -24,6 +25,17 @@ from ria.settings import Settings, get_settings
 
 _SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 _TOKEN_NAME = "gmail_token.json"
+
+_HEADER_UNSAFE = re.compile(r"[\r\n\x00-\x1f\x7f]+")
+
+
+def _sanitize_header(value: str) -> str:
+    """Collapse CR/LF/control characters to a single space. Subjects are built from
+    document titles, which are untrusted external text (same threat model as
+    ria/classifier.py) -- Python's email library refuses embedded headers outright, so
+    without this a hostile or malformed title makes the escalation send RAISE, which is
+    the worst possible failure mode for the pipeline's highest-priority notification."""
+    return _HEADER_UNSAFE.sub(" ", value).strip()
 
 
 def _require_approval() -> None:
@@ -49,7 +61,7 @@ def send_escalation_email(subject: str, body: str, settings: Settings | None = N
 
     message = MIMEText(body)
     message["to"] = settings.gmail_escalation_address
-    message["subject"] = subject
+    message["subject"] = _sanitize_header(subject)
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
 
     sent = service.users().messages().send(userId="me", body={"raw": raw}).execute()

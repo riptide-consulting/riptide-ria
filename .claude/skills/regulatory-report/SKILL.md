@@ -49,8 +49,9 @@ yourself, directly -- do not write a Python templating script for this.
      a missing one.
    - If `evaluation` is present: autonomy tier, execute/escalate booleans, overall
      confidence, enforcement_detected, flags, and human_review_notes. State plainly that
-     `execute=True` is a recommendation only -- no auto-write capability exists yet, so
-     nothing was actually done about this document.
+     `execute=True` did not write anything in THIS run: this skill never passes
+     `--synthesize`, and the pipeline's Notion write and escalation email are additionally
+     gated behind `RIA_EVALUATOR_APPROVED=1` even when it does (see README Governance).
 
 4. **Never include full document body text** in the report -- only the structured
    summaries and reasoning the specialists already produced (root CLAUDE.md: summaries

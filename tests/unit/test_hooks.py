@@ -70,3 +70,21 @@ def test_audit_summarize_is_secret_free():
     summary = audit_log.summarize("Write", {"file_path": "x.py", "content": "SUPERSECRET"})
     assert "SUPERSECRET" not in summary
     assert "x.py" in summary
+
+
+# --- hook routing configuration ---
+
+def test_settings_json_routes_multiedit_through_secrets_guard():
+    """guard_secrets.scan() handles MultiEdit, but the tool only runs if settings.json's
+    matcher routes it there -- this pins the configuration, not just the function."""
+    import json
+    import re
+
+    settings_path = _HOOKS.parent / "settings.json"
+    config = json.loads(settings_path.read_text(encoding="utf-8"))
+    secrets_matchers = [
+        entry["matcher"] for entry in config["hooks"]["PreToolUse"]
+        if any("guard_secrets" in h["command"] for h in entry["hooks"])
+    ]
+    assert secrets_matchers, "secrets guard is not registered in settings.json"
+    assert any(re.fullmatch(m, "MultiEdit") for m in secrets_matchers)

@@ -36,12 +36,22 @@ def _require_approval() -> None:
         )
 
 
+def _require_configured(settings: Settings) -> None:
+    """Notion credentials are optional at load (ria/settings.py); enforce them here, at the
+    point of the actual write, with a clear message instead of a confusing client error."""
+    missing = [n for n, v in (("NOTION_API_KEY", settings.notion_api_key),
+                              ("NOTION_DATA_SOURCE_ID", settings.notion_data_source_id)) if not v]
+    if missing:
+        raise RuntimeError(f"Notion is not configured ({', '.join(missing)} missing) -- see .env.example")
+
+
 def ensure_agency_options(settings: Settings | None = None) -> list[str]:
     """One-time schema fix: add the healthcare agency names to the Agency select field.
     Idempotent -- only adds names that aren't already present. Returns the names actually
     added (empty list if nothing needed to change)."""
     _require_approval()
     settings = settings or get_settings()
+    _require_configured(settings)
     client = Client(auth=settings.notion_api_key)
     source = client.data_sources.retrieve(data_source_id=settings.notion_data_source_id)
     existing = [o["name"] for o in source["properties"]["Agency"]["select"]["options"]]
@@ -108,6 +118,7 @@ def create_remediation_record(
     """
     _require_approval()
     settings = settings or get_settings()
+    _require_configured(settings)
     client = Client(auth=settings.notion_api_key)
     page = client.pages.create(
         parent={"type": "data_source_id", "data_source_id": settings.notion_data_source_id},

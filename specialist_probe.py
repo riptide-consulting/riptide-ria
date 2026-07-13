@@ -3,7 +3,7 @@
 Classifies one real document (for context), then forces all three specialists --
 materiality, process_impact, gap_analyzer -- to run in order over ONE cached full-text
 prefix. Call 1 writes the cache; calls 2 and 3 show cache_read_input_tokens > 0 -- the
-chaining and caching CCAF surfaces working together (cache_probe.py proved the same
+chaining and caching CCA-F surfaces working together (cache_probe.py proved the same
 mechanic with canned questions; this proves it across the real specialist agents).
 
     python specialist_probe.py

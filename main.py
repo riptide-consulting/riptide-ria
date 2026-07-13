@@ -4,7 +4,7 @@ Phase 1: ingest recent CMS/FDA documents and route each through the Classifier.
 Phase 2: optionally run the routed specialists (materiality / process_impact /
 gap_analyzer) over the cached full document text, then optionally the Evaluator
 (Opus, Agent SDK) to score that analysis into an autonomy-tier decision. This is the
-CCAF "headless vs interactive" surface -- the ``-p`` flag makes it pipe-friendly
+CCA-F "headless vs interactive" surface -- the ``-p`` flag makes it pipe-friendly
 (JSON lines to stdout) for batch/cron use.
 
     python main.py                  # ingest, classify, print a routing table
@@ -66,8 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     logger = setup_logging(settings)
     approved = os.environ.get("RIA_EVALUATOR_APPROVED", "").strip().lower() in ("1", "true")
     if args.synthesize and not approved:
+        # Diagnostics go to stderr so -p headless mode keeps stdout as pure JSONL for pipes.
         print("--synthesize requested but RIA_EVALUATOR_APPROVED is not set -- briefings and "
-              "DOCX/PPTX still get generated, but no Notion record or escalation email will be sent.\n")
+              "DOCX/PPTX still get generated, but no Notion record or escalation email will be sent.\n",
+              file=sys.stderr)
         log_event(logger, "pipeline", "execute_gate", "blocked", reason="RIA_EVALUATOR_APPROVED not set")
 
     docs = fetch_recent_documents(settings, logger=logger)[: args.limit]
@@ -88,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
                       max_spend=max_spend, completed=len(results), remaining=len(docs) - len(results))
             print(f"\nCost circuit breaker: ${total_cost:.2f} spent >= ${max_spend:.2f} limit "
                   f"(config/pipeline_config.json's pipeline.max_spend_usd). "
-                  f"Stopping after {len(results)} of {len(docs)} document(s).")
+                  f"Stopping after {len(results)} of {len(docs)} document(s).", file=sys.stderr)
             break
 
         try:
@@ -143,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001 -- one document's failure shouldn't crash the whole batch
             log_event(logger, "pipeline", "document_failed", "error", doc=doc.document_number,
                       error_type=type(exc).__name__, error=str(exc)[:300])
-            print(f"  [FAILED] {doc.document_number}: {type(exc).__name__}: {str(exc)[:200]}")
+            print(f"  [FAILED] {doc.document_number}: {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr)
             results.append({"document": doc.document_number, "title": doc.title, "failed": True,
                              "error_type": type(exc).__name__, "error": str(exc)[:300]})
             continue

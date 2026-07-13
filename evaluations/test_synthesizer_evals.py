@@ -13,6 +13,7 @@ import anthropic
 
 from evaluations.conftest import record_usage
 from evaluations.fixtures.documents import urgent_enforcement_document
+from evaluations.harness import assert_pass_rate
 from ria.logging_setup import setup_logging
 from ria.settings import get_settings
 from ria.synthesizer import _generate_briefing
@@ -53,25 +54,28 @@ _EVALUATOR_DECISION = {"autonomy_tier": 3, "execute": False, "escalate": True,
 
 
 def test_executive_summary_has_no_cfr_citations_or_jargon():
-    doc = urgent_enforcement_document()
-    settings = get_settings()
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    logger = setup_logging(settings)
-    briefing, usage = _generate_briefing(
-        doc, _CLASSIFIER_DECISION, _DENSE_SPECIALIST_RESULTS, _EVALUATOR_DECISION, settings, client, logger,
-    )
-    record_usage("synthesizer:plain_language", settings.models["synthesizer"], usage)
-    summary = briefing["executive_summary"]
+    def case():
+        doc = urgent_enforcement_document()
+        settings = get_settings()
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        logger = setup_logging(settings)
+        briefing, usage = _generate_briefing(
+            doc, _CLASSIFIER_DECISION, _DENSE_SPECIALIST_RESULTS, _EVALUATOR_DECISION, settings, client, logger,
+        )
+        record_usage("synthesizer:plain_language", settings.models["synthesizer"], usage)
+        summary = briefing["executive_summary"]
 
-    citations = _CITATION_PATTERN.findall(summary)
-    assert not citations, f"executive_summary cited a CFR/USC section despite being told not to: {summary!r}"
+        citations = _CITATION_PATTERN.findall(summary)
+        assert not citations, f"executive_summary cited a CFR/USC section despite being told not to: {summary!r}"
 
-    found_jargon = [term for term in _JARGON_TERMS if term in summary.lower()]
-    assert not found_jargon, f"executive_summary used legal jargon: {found_jargon} in {summary!r}"
+        found_jargon = [term for term in _JARGON_TERMS if term in summary.lower()]
+        assert not found_jargon, f"executive_summary used legal jargon: {found_jargon} in {summary!r}"
 
-    sentences = [s for s in re.split(r"[.!?]+", summary) if s.strip()]
-    avg_words_per_sentence = sum(len(s.split()) for s in sentences) / max(len(sentences), 1)
-    assert avg_words_per_sentence < 30, (
-        f"executive_summary averages {avg_words_per_sentence:.1f} words/sentence -- "
-        f"too dense for a non-technical reader: {summary!r}"
-    )
+        sentences = [s for s in re.split(r"[.!?]+", summary) if s.strip()]
+        avg_words_per_sentence = sum(len(s.split()) for s in sentences) / max(len(sentences), 1)
+        assert avg_words_per_sentence < 30, (
+            f"executive_summary averages {avg_words_per_sentence:.1f} words/sentence -- "
+            f"too dense for a non-technical reader: {summary!r}"
+        )
+
+    assert_pass_rate(case, label="synthesizer plain-language constraint")

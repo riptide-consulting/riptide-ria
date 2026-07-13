@@ -1,4 +1,4 @@
-"""Prove main.py's --execute wiring end to end with ONE real Notion write.
+"""Prove the Synthesizer's gated Notion write (main.py --synthesize) end to end, once.
 
 Every live Evaluator run this session has landed Tier 3, so there's no naturally-occurring
 Tier-1 document to exercise the write path with yet (see scratchpad: plausibly because every
@@ -6,8 +6,8 @@ specialist this phase discloses "no internal policy access," which legitimately 
 confidence below the auto-execute floor -- Phase 3 dependency, not a bug).
 
 This uses a REAL document's metadata but a FABRICATED, clearly-labeled Tier-1-shaped decision
--- calling create_remediation_record with the exact same argument shape main.py's --execute
-block uses, so this proves the write mechanism and the call contract, not a real classification.
+-- calling create_remediation_record with the exact same argument shape the Synthesizer's
+execute path uses, so this proves the write mechanism and the call contract, not a real classification.
 Every text field written to Notion says SYNTHETIC TEST DATA so it's unmistakable if anyone
 looks at the record afterward. Requires RIA_EVALUATOR_APPROVED=1, same as any real write.
 

@@ -12,7 +12,7 @@ class _FakeLogger:
 
 
 def test_specialist_run_order_is_fixed():
-    # Chaining CCAF surface depends on this order: materiality writes the cache,
+    # Chaining CCA-F surface depends on this order: materiality writes the cache,
     # process_impact and gap_analyzer read it.
     assert list(specialists._SPECIALISTS) == ["materiality", "process_impact", "gap_analyzer"]
 

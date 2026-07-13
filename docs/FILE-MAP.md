@@ -55,6 +55,8 @@ GitHub: `github.com/riptide-consulting/riptide-ria`
 | `C:\Users\poole\Documents\riptide-ria\execute_probe.py` | Live proof: `main.py`'s `--execute` wiring end to end, one real Notion write |
 | `C:\Users\poole\Documents\riptide-ria\gmail_probe.py` | Live proof: the Gmail escalation-email send, end to end |
 | `C:\Users\poole\Documents\riptide-ria\mcp_probe.py` | Live proof: the MCP servers are real MCP servers, not plain wrappers |
+| `C:\Users\poole\Documents\riptide-ria\requirements.txt` | Pinned dependencies |
+| `C:\Users\poole\Documents\riptide-ria\pyproject.toml` | Project metadata / tool config |
 
 ## Per-agent specs
 

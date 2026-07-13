@@ -169,5 +169,6 @@ docs/AGENTS.md              per-agent technical reference -- what each one does,
 docs/PROBLEM-SOLUTION.md    business-facing: the problem, the solution, build/run cost
 docs/DATA-HANDLING.md       client-readable: where document content goes, who has access
 docs/RUNBOOK.md             operator runbook: pre-flight checks, per-engagement configuration
+docs/DEMO-PLAYBOOK.md       the rehearsed live-demo procedure -- prep, script, recovery moves
 scratchpad/scratchpad.md    the full chronological build log
 ```

@@ -172,5 +172,7 @@ docs/COST-BREAKDOWN.md      per-agent cost and runtime, real measured numbers, n
 docs/DATA-HANDLING.md       client-readable: where document content goes, who has access
 docs/RUNBOOK.md             operator runbook: start to finish, first run through every run after
 docs/DEMO-PLAYBOOK.md       the rehearsed live-demo procedure -- prep, script, recovery moves
+docs/FILE-MAP.md            tracking log: where every file lives, what's backed up vs.
+                            local-only, and the consolidated list of known open items
 scratchpad/scratchpad.md    the full chronological build log
 ```

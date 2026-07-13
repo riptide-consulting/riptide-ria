@@ -75,7 +75,7 @@ confirmed.
 
 ### Build scope, for context
 
-33 commits, 3 days (July 10-12, 2026), 79 source files, ~4,400 lines of Python, 94 offline
+36 commits, 3 days (July 10-12, 2026), 79 source files, ~4,400 lines of Python, 94 offline
 tests plus 7 live model-quality evals — built end-to-end including ingestion, a 3-stage
 analysis chain, a governed autonomy decision, real MCP integrations (Notion, Gmail, Google
 Drive), a CI pipeline with an enforced eval gate, and real branded output generation.

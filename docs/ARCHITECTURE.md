@@ -166,9 +166,11 @@ evaluations/                live prompt-quality evals, real API cost -- run manu
                             once the required secrets are configured (see README)
 docs/ARCHITECTURE.md        this file
 docs/AGENTS.md              per-agent technical reference -- what each one does, real mechanics
+docs/DESIGN-DECISIONS.md    Q&A: the questions a technical reviewer asks, and the real tradeoff
 docs/PROBLEM-SOLUTION.md    business-facing: the problem, the solution, build/run cost
+docs/COST-BREAKDOWN.md      per-agent cost and runtime, real measured numbers, not estimates
 docs/DATA-HANDLING.md       client-readable: where document content goes, who has access
-docs/RUNBOOK.md             operator runbook: pre-flight checks, per-engagement configuration
+docs/RUNBOOK.md             operator runbook: start to finish, first run through every run after
 docs/DEMO-PLAYBOOK.md       the rehearsed live-demo procedure -- prep, script, recovery moves
 scratchpad/scratchpad.md    the full chronological build log
 ```

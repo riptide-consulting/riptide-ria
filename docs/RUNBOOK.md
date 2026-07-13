@@ -2,8 +2,29 @@
 
 For whoever is about to *run* this (a demo, a new engagement), not extend the code. If
 you're modifying the pipeline itself, read `docs/ARCHITECTURE.md` and the README instead.
+This is written to be followed start to finish, in order, the first time and every time after.
 
-## Before every run: a 2-minute pre-flight check
+## 0. First time on this machine? Set up once.
+
+Skip to section 1 if this machine already has a working `.venv` and a filled-in `.env`.
+
+1. **Python 3.11+**, then from the repo root:
+   ```
+   python -m venv .venv
+   .venv\Scripts\pip install -r requirements.txt
+   ```
+2. **Copy `.env.example` to `.env`**, fill in `ANTHROPIC_API_KEY` / `NOTION_API_KEY` /
+   `NOTION_DATABASE_ID` at minimum. Google credentials (Drive/Gmail) are optional — the
+   pipeline runs fine without them, specialists just honestly report Drive wasn't checked.
+3. **Google OAuth, only if you want Drive/Gmail**: one-time interactive consent per scope
+   (Drive read, Gmail send) — running the pipeline the first time with those configured will
+   open a browser and walk you through it. `docs/ARCHITECTURE.md` has the scope details if
+   something goes wrong.
+
+This is genuinely one-time per machine. Once `.venv` exists and `.env` is filled in, every
+future run starts at section 1 below.
+
+## 1. Before every run: a 2-minute pre-flight check
 
 1. **Credentials present?** `.env` needs `ANTHROPIC_API_KEY`, `NOTION_API_KEY`,
    `NOTION_DATABASE_ID` at minimum. Confirm with:
@@ -26,7 +47,7 @@ you're modifying the pipeline itself, read `docs/ARCHITECTURE.md` and the README
    and DOCX/PPTX — it just prints what it *would* have sent instead of sending it. See
    `docs/ARCHITECTURE.md`'s Governance section before ever setting this to `1`.
 
-## Running a demo
+## 2. Run it
 
 ```
 run_demo.bat            # 2 documents, full pipeline, sensible defaults
@@ -37,10 +58,24 @@ Or directly:
 ```
 .venv\Scripts\python.exe main.py --analyze --evaluate --synthesize --limit 1
 ```
-Start with `--limit 1` for anything you haven't personally watched succeed recently. Output
-lands in `outputs\docx\<document-number>.docx` and `outputs\pptx\<document-number>.pptx`.
+Start with `--limit 1` for anything you haven't personally watched succeed recently. A full
+run takes about 4-5 minutes and costs about $0.59 (real, measured — see
+`docs/COST-BREAKDOWN.md` for the per-stage numbers).
 
-## What to configure for a different demo scenario or a new engagement
+## 3. What you'll have when it finishes
+
+- A printed summary table: what got classified, at what priority, routed to which specialists.
+- A real branded briefing, two forms, same content: `outputs\docx\<document-number>.docx` and
+  `outputs\pptx\<document-number>.pptx` — executive summary, materiality, a due-dated
+  remediation plan, and the "AI-assisted, human review required" disclaimer on both.
+- A tier decision (1/2/3) and, only if the Evaluator's decision authorized it *and*
+  `RIA_EVALUATOR_APPROVED=1` was set: a Notion tracker record and/or an escalation email.
+  Neither fires by default — see pre-flight step 5.
+- `logs/ria.log` now has the full run recorded, one line per decision — see section 4 below.
+
+That's the finish line. If you got a populated docx/pptx and a tier decision, it worked.
+
+## 4. What to configure for a different demo scenario or a new engagement
 
 | What | Where | Notes |
 |---|---|---|
@@ -51,7 +86,7 @@ lands in `outputs\docx\<document-number>.docx` and `outputs\pptx\<document-numbe
 | Branded output templates | `config/riptide_template.docx` / `.pptx` | Currently Riptide's own branding. A white-labeled deliverable for a specific client would need separate template files and a way to select between them — not built yet, since this demo only needs Riptide's own brand. |
 | Internal policy documents (Drive gap-analysis context) | Whatever's in the Drive account behind the configured Drive token | See `docs/ARCHITECTURE.md`'s single-tenant note — this is one shared Drive today, not scoped per client. |
 
-## If something fails mid-run
+## 5. If something fails mid-run
 
 As of the failure-hardening pass: one document failing doesn't crash the batch (it's logged
 with the error type/message and the run continues), and one specialist failing doesn't block
@@ -60,7 +95,7 @@ the other two for the same document. Check `logs/ria.log` for the specific
 document shows up in its own "Failed" section in the printed summary table, not silently
 missing from it.
 
-## What NOT to do
+## 6. What NOT to do
 
 - Don't set `RIA_EVALUATOR_APPROVED=1` to "see what happens" — it authorizes real Notion
   writes and real emails. Only set it when you specifically mean to.

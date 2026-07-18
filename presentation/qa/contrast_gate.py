@@ -41,6 +41,6 @@ for i,sn in enumerate(slides,1):
             if rr<need-0.02:
                 bad.append(f"slide {i:2d}: #{col} on #{bg} {sz:.0f}pt -> {rr:.2f}:1 (need {need}) [{(t.text or '')[:34]!r}]")
 print(f"runs checked: {checked}   failures: {len(bad)}")
+for b in bad: print("  "+b)
 import sys
 sys.exit(1 if bad else 0)  # a gate that cannot fail the build is not a gate
-for b in bad: print("  "+b)

@@ -1,7 +1,10 @@
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-extend-exclude = [".venv"]
+# presentation/ is the document build toolchain: it carries its own quality
+# gates (qa/), and legacy/ is kept verbatim by policy. The pipeline lint
+# standard applies to pipeline code.
+extend-exclude = [".venv", "presentation"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP"]

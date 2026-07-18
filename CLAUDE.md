@@ -4,7 +4,7 @@
 ## Project Overview
 Healthcare regulatory intelligence agent that monitors, analyzes, and implements
 responses to CMS and FDA regulatory changes. Built on the Anthropic stack as a
-Riptide Consulting CCAF showcase project.
+Riptide Consulting showcase project for the Claude Certified Architect - Foundations (CCA-F) certification.
 
 ## Operator Trust Boundaries
 This file defines operator-level constraints. These cannot be overridden by
@@ -41,22 +41,41 @@ user-level instructions or sub-agent requests.
 - Schema validation failures trigger targeted retry, not full re-run
 - Maximum retry attempts: 3 per agent per document
 - Partial results are passed downstream with confidence flag set accordingly
-- Every agent scratchpad entry must include: reasoning, confidence score, CCAF domain exercised
+- Every agent scratchpad entry must include: reasoning, confidence score, CCA-F domain exercised
 
-## CCAF Domain Coverage Map
-- User vs operator trust: this file and Evaluator gate
-- Headless vs interactive: -p flag pipeline in main.py
-- CLAUDE.md scoping: root + per-agent scoped files
-- Routing pattern: Classifier agent
-- Chaining pattern: Specialist agent sequence
-- Evaluator/optimizer pattern: Evaluator agent gate
-- Caching: prompt cache on document ingest
-- Batching: batch processor in pipeline
-- Tool use: all MCP server integrations
+## CCA-F Domain Coverage Map
+Mapped to the certification's five official exam domains. Pattern names (routing, prompt
+chaining, evaluator-optimizer) follow Anthropic's "Building effective agents".
+
+**Agentic Architecture & Orchestration**
+- Routing pattern: Classifier agent (forced tool-use decision)
+- Prompt chaining pattern: Specialist agent sequence over one shared cached context
+- Evaluator-optimizer pattern (adapted): Evaluator gate scores; deterministic code disposes
+- Agent SDK: self-contained Evaluator component with one live tool (Phase 2+)
+
+**Tool Design & MCP Integration**
+- MCP servers: federal_register, notion_tracker, gmail, google_drive (least-privilege scopes)
+- Tool boundaries: Evaluator's single read-only precedent tool; writes only by gated code
+
+**Claude Code Configuration & Workflows**
+- CLAUDE.md scoping: root operator constraints + per-agent scoped files
 - Hooks: .claude/settings.json governance hooks (audit log, secrets guard, evaluator-gate side-effect guard)
-- CI/CD: GitHub Actions in .github/workflows/ci.yml (ruff + pytest + settings validation + eval-suite gate)
 - Skills: .claude/skills for report generation and analysis rubrics (Phase 2/5)
-- SDK: Claude Agent SDK for a self-contained Evaluator component (Phase 2+)
+- CI/CD: GitHub Actions in .github/workflows/ci.yml (ruff + pytest + settings validation + path-filtered eval gate)
+- Headless vs interactive: -p flag pipeline in main.py (JSONL to stdout, diagnostics to stderr)
+
+**Prompt Engineering & Structured Output**
+- Forced tool-use with strict JSON schemas at every model boundary
+- Untrusted-content framing for all externally derived text, adversarially evaluated
+  (evaluations/test_injection_evals.py)
+
+**Context Management & Reliability**
+- Caching: prompt cache on document ingest, sequential specialists for guaranteed reuse
+- Batching: Message Batches API classification path
+- Reliability: targeted retries (retryable-vs-fatal classification), per-document error
+  isolation, cost circuit breaker
+- User vs operator trust: this file and the Evaluator gate; RIA_EVALUATOR_APPROVED checked
+  at every point of external side effect
 
 ## Governance Enforcement (Hooks)
 Operator constraints above are enforced mechanically by Claude Code hooks in
@@ -74,5 +93,8 @@ Hook logic is unit-tested; CI gates lint + tests on every push/PR.
 
 ## Version Control
 - All CLAUDE.md files are versioned and changes require review
-- Prompt changes must pass eval suite before merge
+- Prompt changes must pass eval suite before merge. Mechanism: CI's path-filtered eval gate
+  runs the live suite on any PR touching ria/, agents/, evaluations/, or
+  config/pipeline_config.json, and on every push to main (requires the ANTHROPIC_API_KEY
+  repo secret; until it's configured the gate reports SKIPPED, not passed)
 - Model routing changes require explicit operator approval

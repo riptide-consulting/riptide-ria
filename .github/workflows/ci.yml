@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the eval gate below can diff a PR against its base branch to
+          # decide whether prompt-affecting files changed.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -29,31 +33,52 @@ jobs:
       - name: Tests (pytest)
         run: pytest -q
 
-      # Eval-suite gate (operator rule: prompt changes must pass evals before merge).
-      # Phase 6: evaluations/ now has real live-model tests (real API cost, not free like
-      # pytest above). get_settings() requires all three of these (Notion included, even
-      # though these particular evals never touch Notion -- it's a single settings loader,
-      # not lazy per-field). Until all three are added as repo secrets, this skips cleanly
-      # instead of failing every push with no keys available. Contributors can always run
-      # `pytest evaluations -q` locally with their own .env in the meantime.
-      - name: Eval suite (if present + secrets configured)
+      # Eval-suite gate (operator rule in root CLAUDE.md: prompt changes must pass evals
+      # before merge). The gate is PATH-FILTERED so it is both real and cost-bounded:
+      #   - PRs: live evals run only when the diff vs the base branch touches files that
+      #     can change model behavior (ria/, agents/, evaluations/, config/). A docs-only
+      #     PR spends nothing.
+      #   - Pushes to main: evals always run (main is the protected state the rule exists
+      #     to defend).
+      # Only ANTHROPIC_API_KEY is required now -- ria/settings.py loads without Notion, and
+      # the Evaluator's precedent tool degrades to an honest error the model can see. Until
+      # that one secret is added to the repo, the gate skips loudly instead of failing.
+      - name: Detect prompt-affecting changes
+        id: prompt_diff
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+              -- ria/ agents/ evaluations/ config/pipeline_config.json | head -20)
+            if [ -n "$CHANGED" ]; then
+              echo "Prompt-affecting changes detected:"; echo "$CHANGED"
+              echo "run_evals=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "No prompt-affecting changes in this PR - eval gate not required"
+              echo "run_evals=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "run_evals=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Eval suite (gate for prompt-affecting changes)
+        if: steps.prompt_diff.outputs.run_evals == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Optional: without these the precedent tool reports itself unconfigured and the
+          # Evaluator evals still measure what they measure.
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           # Not secrets -- root CLAUDE.md's model routing policy, stated in plain text there
-          # already. Locally these come from .env; .env doesn't exist in CI, and the block
-          # above only covers the 3 auth secrets, so get_settings() would otherwise resolve
-          # every MODEL_* to "" here and every live call would fail with an invalid model.
+          # already. Locally these come from .env; .env doesn't exist in CI, so get_settings()
+          # would otherwise resolve every MODEL_* to "" and every live call would fail.
           MODEL_CLASSIFIER: claude-haiku-4-5-20251001
           MODEL_SPECIALIST: claude-sonnet-5
           MODEL_EVALUATOR: claude-opus-4-8
           MODEL_SYNTHESIZER: claude-sonnet-5
+          RIA_EVAL_REPEATS: "3"
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DATABASE_ID" ]; then
-            echo "ANTHROPIC_API_KEY/NOTION_API_KEY/NOTION_DATABASE_ID secrets not all configured - skipping live eval suite"
-          elif ls evaluations/test_*.py >/dev/null 2>&1; then
-            pytest evaluations -q
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::warning::ANTHROPIC_API_KEY secret not configured - eval gate SKIPPED, not passed"
           else
-            echo "no evals yet - skipping"
+            pytest evaluations -q
           fi

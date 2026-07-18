@@ -24,6 +24,7 @@ import time
 from ria.caching import ask_over_document, cached_document_prefix, fetch_drive_context
 from ria.logging_setup import log_event, setup_logging
 from ria.models import RegulatoryDocument
+from ria.retry import is_retryable
 from ria.settings import Settings, get_settings
 
 _DRIVE_NOTE = (
@@ -97,7 +98,7 @@ these keys:
 }}"""
 
 # Dict order is the fixed run order (materiality -> process_impact -> gap_analyzer): the
-# CCAF "chaining" surface. run_all_specialists only calls the ones the classifier routed to.
+# CCA-F "chaining" surface. run_all_specialists only calls the ones the classifier routed to.
 _SPECIALISTS = {
     "materiality": _MATERIALITY_PROMPT,
     "process_impact": _PROCESS_IMPACT_PROMPT,
@@ -198,13 +199,14 @@ def run_specialist(
                 prefix_blocks, prompt, settings=settings, client=client,
                 max_tokens=settings.max_tokens["specialist"],
             )
-        except Exception as exc:  # noqa: BLE001 -- transient API/network failure, retry with backoff
+        except Exception as exc:  # noqa: BLE001 -- classified below; only transient failures retry
             last_err = exc
             log_event(logger, key, "analyze", "retry", doc=doc.document_number, attempt=attempt,
                       error_type=type(exc).__name__, error=str(exc)[:200])
-            if attempt < max_attempts:
+            if attempt < max_attempts and is_retryable(exc):
                 time.sleep(2 ** (attempt - 1))
-            continue
+                continue
+            break  # fatal (4xx auth/request error) or attempts exhausted -- fail now
         result = _parse_json(text)
         if result is None:
             last_err = ValueError("response was not valid JSON")
@@ -244,7 +246,7 @@ def run_all_specialists(
 
     The first call writes the document into the cache; every specialist after it reads the
     same prefix (cache_read > 0) instead of re-paying for the full document -- the "chaining"
-    and "caching" CCAF surfaces working together.
+    and "caching" CCA-F surfaces working together.
 
     One specialist exhausting its own retries doesn't stop the others -- each is independent
     over the same cached prefix, so there's no reason gap_analyzer shouldn't still run just

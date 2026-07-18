@@ -19,6 +19,24 @@ set LIMIT=%1
 if "%LIMIT%"=="" set LIMIT=2
 
 cd /d "%~dp0"
+
+REM Fail with a plain reason instead of a stack trace when setup is incomplete.
+if not exist ".venv\Scripts\python.exe" (
+    echo No .venv found. Run: python -m venv .venv ^&^& .venv\Scripts\pip install -r requirements.txt
+    pause
+    exit /b 2
+)
+if not exist ".env" (
+    echo No .env found. Copy .env.example to .env and add ANTHROPIC_API_KEY first.
+    pause
+    exit /b 2
+)
+echo %LIMIT%|findstr /r "^[1-9][0-9]*$" >nul || (
+    echo Document count must be a positive number, got "%LIMIT%". Usage: run_demo.bat 5
+    pause
+    exit /b 2
+)
+
 echo Riptide RIA demo -- %LIMIT% document(s) through the full pipeline.
 echo Real API cost will be incurred (Haiku + Sonnet + Opus). No Notion/email side effects fire.
 echo.

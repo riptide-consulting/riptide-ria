@@ -7,10 +7,15 @@ Produce the executive briefing and remediation plan.
 ## Model
 claude-sonnet-5
 
-## Tools Available
-- notion_tracker: create remediation records
-- gmail: send escalation notifications
-- outputs: write DOCX and PPTX files
+## Side Effects (executed by gated pipeline code, NOT model tools)
+The model's only output is the briefing JSON. Every side effect below is performed by
+deterministic code in ria/synthesizer.py acting on the Evaluator's decision -- the model
+cannot invoke any of these, which is the point:
+- DOCX and PPTX files: always written locally (ungated; reversible, zero external reach)
+- notion_tracker remediation record: only when the Evaluator decided execute=True, AND
+  RIA_EVALUATOR_APPROVED=1 is set (checked again at the point of the write)
+- gmail escalation email: only when the Evaluator decided escalate=True, AND
+  RIA_EVALUATOR_APPROVED=1 is set (checked again at the point of the send)
 
 ## Output Schema
 {

@@ -28,7 +28,15 @@ def setup_logging(settings: Settings | None = None) -> logging.Logger:
 
     if not _configured:
         try:
-            logging.config.fileConfig(str(_LOGGING_CONF), disable_existing_loggers=False)
+            # defaults feeds %(logpath)s interpolation in logging.conf's FileHandler args,
+            # so the file lands at settings.log_path under the project root regardless of
+            # CWD. as_posix() matters: the args line is eval()'d by fileConfig, and a raw
+            # Windows path ("C:\Users\...") inside that string literal is a \U escape error.
+            logging.config.fileConfig(
+                str(_LOGGING_CONF),
+                disable_existing_loggers=False,
+                defaults={"logpath": (PROJECT_ROOT / settings.log_path).as_posix()},
+            )
         except Exception as exc:
             # This exact failure (a UTF-8 BOM in logging.conf breaking configparser) went
             # unnoticed for the whole project, since the fallback below still logs to

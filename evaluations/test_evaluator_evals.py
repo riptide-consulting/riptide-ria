@@ -41,7 +41,13 @@ _CONFLICTING_SPECIALIST_RESULTS = {
 
 def test_enforcement_chain_end_to_end_forces_tier_3():
     """Real specialists over a real enforcement document, then the real Evaluator -- not
-    compute_tier() fed hand-crafted inputs, the whole live chain."""
+    compute_tier() fed hand-crafted inputs, the whole live chain.
+
+    Deliberately single-shot: this is the expensive Opus + Agent SDK path (see
+    docs/COST-BREAKDOWN.md), and the hard tier-3 overrides it exercises are deterministic
+    in compute_tier once enforcement is detected. The stochastic pieces (does the model
+    discriminate, does injected text move it) get their pass-rate treatment in the cheap
+    classifier/specialist evals and test_injection_evals.py instead."""
     doc = urgent_enforcement_document()
     settings = get_settings()
     prefix = cached_document_prefix(doc, urgent_enforcement_full_text())

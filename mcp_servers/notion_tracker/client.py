@@ -61,6 +61,8 @@ def search_remediation_tracker(
     recent `limit` records instead of filtering. Raises RuntimeError if no Notion data
     source is configured -- that's a real misconfiguration, not an empty-results case."""
     settings = settings or get_settings()
+    if not settings.notion_api_key:
+        raise RuntimeError("NOTION_API_KEY is not configured -- see .env.example")
     if not settings.notion_data_source_id:
         raise RuntimeError("NOTION_DATA_SOURCE_ID is not configured")
 

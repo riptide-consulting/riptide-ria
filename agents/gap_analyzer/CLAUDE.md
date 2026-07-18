@@ -7,9 +7,15 @@ and what the regulation requires.
 ## Model
 claude-sonnet-5
 
-## Tools Available
-- google_drive: read current policy and control documentation
-- federal_register: fetch regulatory requirements
+## Context Provided (no live tools)
+This agent runs with NO tools of its own -- a deliberate cache-stability decision (a
+per-specialist tool definition would vary the shared prefix and break cache reuse; see
+docs/DESIGN-DECISIONS.md). The pipeline does the fetching and hands everything over in one
+shared cached prefix (ria/caching.py):
+- Regulatory requirements: fetched once from the Federal Register MCP client
+- Current policy and control documentation: searched once in Google Drive and folded in
+  (or an honest "no documents found" statement -- a gap against absent documentation is
+  still a gap, and is reported as such)
 
 ## Output Schema
 {

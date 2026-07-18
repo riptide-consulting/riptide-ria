@@ -4,6 +4,10 @@ Merges two sources into one immutable ``Settings`` object:
   - ``.env``                     secrets, model routing, log config (runtime, gitignored)
   - ``config/pipeline_config.json``  federal register, autonomy tiers, pipeline knobs
 
+Only ANTHROPIC_API_KEY is required at load. Integration credentials (Notion, Google) are
+validated at the point of use by the code that actually needs them, so the free/cheap
+stages run on a fresh clone with one key.
+
 Secrets are never rendered by ``repr()`` (operator rule: no keys in logs/outputs).
 Access via ``get_settings()`` which caches a single instance for the process.
 """
@@ -39,8 +43,8 @@ def _require(name: str, value: str | None) -> str:
 class Settings:
     # --- secrets (never logged) ---
     anthropic_api_key: str
-    notion_api_key: str
-    notion_database_id: str
+    notion_api_key: str          # optional at load; enforced at point of use (mcp_servers/notion_tracker)
+    notion_database_id: str      # optional at load; enforced at point of use
     notion_data_source_id: str | None
     # --- model routing (operator policy, sourced from .env) ---
     models: dict          # role -> model id
@@ -110,8 +114,12 @@ def get_settings() -> Settings:
 
     return Settings(
         anthropic_api_key=_require("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY")),
-        notion_api_key=_require("NOTION_API_KEY", os.getenv("NOTION_API_KEY")),
-        notion_database_id=_require("NOTION_DATABASE_ID", os.getenv("NOTION_DATABASE_ID")),
+        # Notion is deliberately NOT _require'd: ingest/classify/analyze/evaluate all run
+        # without it (the Evaluator's precedent tool degrades to an honest error the model
+        # sees), so "clone, add ANTHROPIC_API_KEY, run" works. The Notion client/writer
+        # enforce their own configuration at the point of use instead.
+        notion_api_key=os.getenv("NOTION_API_KEY", ""),
+        notion_database_id=os.getenv("NOTION_DATABASE_ID", ""),
         notion_data_source_id=os.getenv("NOTION_DATA_SOURCE_ID") or None,
         models=models,
         max_tokens=max_tokens,

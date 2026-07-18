@@ -9,6 +9,8 @@ Run the ingestion smoke test from the repo root:
     python -m mcp_servers.federal_register.client
 """
 
+import re
+import time
 from datetime import date, timedelta
 from typing import Any
 
@@ -26,6 +28,36 @@ _FIELDS = [
 ]
 # Safety cap so an unexpectedly large window can't page forever.
 _MAX_PAGES = 5
+
+_TAG = re.compile(r"<[^>]+>")
+_WS = re.compile(r"[ \t]{2,}")
+
+
+def _strip_markup(text: str) -> str:
+    """Strip XML/HTML tags and collapse runs of spaces, so fetch_full_text's character cap
+    applies to regulatory substance instead of markup. On big rules the raw XML is mostly
+    tags; capping before stripping was silently trading analysis content for angle brackets."""
+    if not text.lstrip().startswith("<"):
+        return text
+    return _WS.sub(" ", _TAG.sub(" ", text))
+
+
+def _get_with_retry(client: httpx.Client, url: str, params=None, attempts: int = 3) -> httpx.Response:
+    """GET with backoff on transient failures (network errors, 5xx, 429). Non-transient
+    4xx raises immediately. Ingestion runs before main.py's per-document error isolation,
+    so without this one Federal Register blip killed the whole run."""
+    last_err: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = client.get(url, params=params)
+            if resp.status_code >= 500 or resp.status_code == 429:
+                resp.raise_for_status()
+            return resp
+        except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+            last_err = exc
+            if attempt < attempts:
+                time.sleep(2 ** (attempt - 1))
+    raise last_err
 
 
 def _build_params(settings: Settings, gte: str, per_page: int, page: int) -> list[tuple[str, str]]:
@@ -77,7 +109,7 @@ def fetch_recent_documents(
     page, total_pages = 1, 1
     with httpx.Client(timeout=30.0) as client:
         while page <= total_pages and page <= _MAX_PAGES:
-            resp = client.get(url, params=_build_params(settings, gte, per_page, page))
+            resp = _get_with_retry(client, url, params=_build_params(settings, gte, per_page, page))
             resp.raise_for_status()
             data = resp.json()
 
@@ -116,7 +148,7 @@ def fetch_document(
     logger = logger or setup_logging(settings)
     url = f"{settings.fr_base_url}/documents/{document_number}.json"
     with httpx.Client(timeout=30.0) as client:
-        resp = client.get(url, params=[("fields[]", f) for f in _FIELDS])
+        resp = _get_with_retry(client, url, params=[("fields[]", f) for f in _FIELDS])
         if resp.status_code == 404:
             log_event(logger, "federal_register", "fetch_document", "not_found", doc=document_number)
             return None
@@ -130,10 +162,11 @@ def fetch_full_text(
     logger=None,
     max_chars: int = 60000,
 ) -> str:
-    """Fetch a document's full text (XML/HTML), capped at max_chars. Returns '' if unavailable.
+    """Fetch a document's full text (XML/HTML), tag-stripped and capped at max_chars.
+    Returns '' if unavailable.
 
-    Read-only GET. The raw XML/HTML is fine for caching and analysis -- the model reads the
-    regulatory content within it.
+    Read-only GET. Markup is stripped BEFORE the cap so the cached budget is spent on
+    regulatory substance, not angle brackets (see _strip_markup).
     """
     settings = settings or get_settings()
     logger = logger or setup_logging(settings)
@@ -141,14 +174,14 @@ def fetch_full_text(
         return ""
     try:
         with httpx.Client(timeout=30.0) as client:
-            resp = client.get(doc.full_text_url)
+            resp = _get_with_retry(client, doc.full_text_url)
             resp.raise_for_status()
             text = resp.text
     except Exception as exc:
         log_event(logger, "federal_register", "fetch_full_text", "warn",
                   doc=doc.document_number, error=str(exc)[:80])
         return ""
-    return text[:max_chars]
+    return _strip_markup(text)[:max_chars]
 
 
 def _main() -> None:

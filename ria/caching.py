@@ -1,7 +1,7 @@
 """Shared prompt-cache scaffolding for document analysis (Phase 2).
 
 Caches the full regulatory document once so multiple specialist agents reading the same
-document reuse the cached prefix -- the CCAF "caching" surface ("all sub-agents work from a
+document reuse the cached prefix -- the CCA-F "caching" surface ("all sub-agents work from a
 cached document prefix"). The cache breakpoint sits on the LAST block; each agent's question
 goes *after* it, so the large document (+ Drive context, Phase 3) prefix is shared and the
 small question varies.

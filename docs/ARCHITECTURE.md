@@ -1,6 +1,6 @@
-# Riptide RIA — Architecture
+# Riptide RIA: Architecture
 
-`scratchpad/scratchpad.md` is the complete, chronological build log — decisions, dead ends,
+`scratchpad/scratchpad.md` is the complete, chronological build log; decisions, dead ends,
 what's been proven live. This document distills the parts of it that matter for understanding
 the system, not for re-living how it was built.
 
@@ -12,24 +12,36 @@ over one cached document) -> evaluate (Opus, Agent SDK, autonomy tier) -> synthe
 (Sonnet briefing + DOCX/PPTX, and where authorized: a Notion record and/or an escalation email)
 ```
 
+In the vocabulary of Anthropic's "Building effective agents" (the engineering post the root
+`CLAUDE.md` coverage map cites), this composes three of the named workflow patterns:
+**routing** (the classifier's forced-tool decision), **prompt chaining** (three specialists
+run in sequence over one shared cached document context), and an adapted
+**evaluator-optimizer**, where the evaluator is real (Opus scoring quality and confidence)
+but the "optimizer" is deliberately replaced by deterministic disposal code
+(`compute_tier()`) instead of a revision loop -- judgment proposes, code disposes.
+
 Each stage is a separate flag on `main.py` (see README). Nothing past `classify` runs unless
 requested, and nothing writes anywhere external unless both the Evaluator's decision *and* an
 explicit operator approval say so.
 
 ## The trust boundary: how autonomy decisions actually get made
 
-Root `CLAUDE.md` defines four autonomy tiers by confidence and risk. The critical design
+Root `CLAUDE.md` defines three autonomy tiers by confidence and risk. The critical design
 choice: **the tier number is never something the model asserts on its own.**
 
 `ria/evaluator.py` splits the decision in two:
-- Opus (via the Claude Agent SDK) supplies *judgment* — quality scores per specialist,
-  overall confidence, a risk level, an enforcement-language flag. It has exactly one live
-  tool (Notion precedent lookup) and no ability to write anything.
-- `compute_tier()` is a pure, deterministic function that turns those scores into tier 1/2/3.
-  It reads `config/pipeline_config.json`'s `tier1_threshold`/`tier2_threshold`, and applies
+- Opus (via the Claude Agent SDK) supplies *judgment*: quality scores per specialist,
+  overall confidence, and free-text flags (naming enforcement exposure when it sees it).
+  It has exactly one live tool (Notion precedent lookup) and no ability to write anything.
+- `compute_tier()` is a pure, deterministic function that turns judgment into tier 1/2/3.
+  Its risk input is the **materiality specialist's own `risk_level`**, not something Opus
+  restates, and enforcement detection is `_detect_enforcement()`: a plain keyword scan over
+  the materiality reasoning, OR'd with any enforcement flag Opus raised -- code backstopping
+  judgment, the same pattern as the specialists' post-processing. It reads
+  `config/pipeline_config.json`'s `tier1_threshold`/`tier2_threshold`, and applies
   hard overrides *before* the threshold check: confidence below tier2, critical risk, or
-  enforcement language detected all force tier 3 regardless of what Opus scored. Root
-  `CLAUDE.md` states the Evaluator "cannot be bypassed under any circumstances" — this is
+  enforcement detected all force tier 3 regardless of what Opus scored. Root
+  `CLAUDE.md` states the Evaluator "cannot be bypassed under any circumstances"; this is
   the code that makes that literally true rather than a prompt instruction that could drift.
 
 This same proposes-then-code-disposes pattern repeats at every stage: the classifier's
@@ -42,17 +54,17 @@ below 0.60 regardless of what the model claims; each specialist's `_postprocess_
 
 `RIA_EVALUATOR_APPROVED` is checked in two places that don't know about each other:
 
-1. **`.claude/hooks/guard_side_effects.py`** — blocks git pushes and mutating tool calls run
+1. **`.claude/hooks/guard_side_effects.py`**: blocks git pushes and mutating tool calls run
    *through Claude Code* without the flag set.
 2. **The pipeline's own write functions** (`mcp_servers/notion_tracker/writer.py`,
-   `mcp_servers/gmail/client.py`) — check the same env var at the point of the actual network
+   `mcp_servers/gmail/client.py`); check the same env var at the point of the actual network
    call, independent of whether Claude Code is involved at all.
 
 This is deliberate defense in depth: layer 2 is what actually matters, since the pipeline
 runs standalone (e.g. `python main.py`, or eventually a cron job) with no hook watching it.
 Layer 1 catches accidental side effects specifically when working *through* Claude Code.
 
-DOCX/PPTX generation in `ria/synthesizer.py` is explicitly *not* gated by this flag — writing
+DOCX/PPTX generation in `ria/synthesizer.py` is explicitly *not* gated by this flag; writing
 a file to the local `outputs/` directory isn't an external side effect. Only the Notion write
 and the escalation email are.
 
@@ -92,15 +104,15 @@ a demo that has no real client data to isolate.
 
 `ria/caching.py`'s `cached_document_prefix()` builds three content blocks (header, full
 document text, Drive context), with the cache breakpoint on the *last* block. Each specialist's
-question goes after the breakpoint. Anthropic's cache matching requires the whole prefix —
-tools, system, and messages up to the breakpoint — to be byte-identical, which is why:
+question goes after the breakpoint. Anthropic's cache matching requires the whole prefix;
+tools, system, and messages up to the breakpoint; to be byte-identical, which is why:
 
 - The specialist calls carry no system prompt and no tools. A per-specialist live tool would
   vary the prefix per specialist and break cache-sharing across all three.
 - Google Drive context (Phase 3) was folded into the shared prefix as a third block, rather
   than given to each specialist as its own tool call, for the same reason.
 - The prefix always states explicitly whether Drive found anything ("no matching documents
-  were found" vs. real content) — specialists never have to guess whether Drive was checked.
+  were found" vs. real content); specialists never have to guess whether Drive was checked.
 
 First specialist call writes the cache; the next two read it (`cache_read_input_tokens > 0`
 in the logs is the live signal this is actually working, not just correctly configured).
@@ -128,7 +140,7 @@ build for a client":
 
 ## Known constraints worth knowing before extending this
 
-- **`python-pptx` cannot add shapes to a slide layout or master via its public API** — only to
+- **`python-pptx` cannot add shapes to a slide layout or master via its public API**: only to
   an actual slide. `layout.shapes.add_textbox()` / `add_picture()` / `add_shape()` don't exist;
   only `SlideShapes` (real slides) has them. Branding baked into a *reusable* PowerPoint
   template (logos, dividers, background images on the layout itself, not just background color
@@ -137,14 +149,13 @@ build for a client":
   `config/riptide_template.pptx` was built the low-level-XML way.
 - **Google Drive's `fetch_document_text` only exports Google-native formats** (Docs/Sheets/
   Slides) to plain text automatically. A real uploaded `.docx` decodes as UTF-8 with
-  `errors="ignore"` unless its mimetype has an explicit parser in `_BINARY_PARSERS` — without
+  `errors="ignore"` unless its mimetype has an explicit parser in `_BINARY_PARSERS`; without
   one, this doesn't error, it silently returns the file's raw ZIP bytes as mojibake. Currently
   handled for real `.docx` uploads (via `python-docx`); a PDF would hit the same failure mode
   and needs the same treatment before anything real is staged in that format.
-- **Claude Agent SDK's `query()` async generator must be allowed to finish its own loop** —
-  returning early from inside `async for message in query(...)` on seeing a `ResultMessage`
+- **Claude Agent SDK's `query()` async generator must be allowed to finish its own loop**:   returning early from inside `async for message in query(...)` on seeing a `ResultMessage`
   races the SDK's internal cleanup. Collect into a variable and let the loop end naturally.
-- **A cached token's scope is fixed at consent time** — Gmail (`gmail.send`) and Drive
+- **A cached token's scope is fixed at consent time**: Gmail (`gmail.send`) and Drive
   (`drive.readonly`) needed separate token files (`mcp_servers/gmail/client.py` /
   `mcp_servers/google_drive/client.py`) sharing one client-credentials file, not one shared
   token, because a token is only valid for the exact scopes it was granted under.

@@ -1,4 +1,4 @@
-﻿# Classifier Agent - Scoped CLAUDE.md
+# Classifier Agent - Scoped CLAUDE.md
 
 ## Role
 Route incoming regulatory documents to appropriate specialist agents.
